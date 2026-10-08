@@ -2148,32 +2148,12 @@
               <button class="btn btn-secondary" id="btn-what-now"><span>✨ What should I do now?</span></button>
               <button class="btn btn-secondary text-amber" id="btn-lost-time"><span>⚠️ Lost time</span></button>
               <button class="btn btn-secondary" id="btn-brain-dump" style="color:#a855f7;"><span>🧠 Auto-Schedule Week</span></button>
-              <button class="btn btn-secondary" id="btn-dashboard-gemma" style="border-color:rgba(139,92,246,0.5);color:#c4b5fd;"><span>✦ Ask Gemma AI</span></button>
             </div>
 
             <div class="control-right">
               <button class="btn btn-ghost" id="btn-regen-plan"><span>⚡ Recalculate schedule</span></button>
               <button class="btn btn-ghost" id="btn-end-day"><span>🌙 End-of-Day Review</span></button>
             </div>
-          </div>
-        </div>
-
-        <div class="gemma-banner-card animate-fade-in" id="card-open-gemma">
-          <div class="gemma-banner-left">
-            <div class="gemma-avatar-badge">✦</div>
-            <div>
-              <div class="gemma-banner-title">
-                <span>Adapt AI Life & Problem-Solving Companion</span>
-                <span class="gemma-tag-track1">Gemma 4 Multimodal</span>
-              </div>
-              <p class="gemma-banner-desc">Feeling overwhelmed, stuck on a problem, or wondering where you're lagging? Chat freely with Gemma 4 or attach screenshots/notes for compassionate, clear guidance.</p>
-            </div>
-          </div>
-          <div class="gemma-banner-chips">
-            <button class="gemma-chip-btn" data-gemma-prompt="I'm feeling overwhelmed today, can you help me decompress and prioritize?">💭 Feeling Overwhelmed</button>
-            <button class="gemma-chip-btn" data-gemma-prompt="Where am I lagging in my schedule and subjects, and what should I focus on?">🧭 Where am I lagging?</button>
-            <button class="gemma-chip-btn" data-gemma-prompt="Help me organize a calm and realistic plan for the rest of today.">⚡ Plan My Day</button>
-            <button class="btn btn-sm btn-primary gemma-chat-cta" id="btn-open-gemma-cta"><span>Chat with Gemma</span> <span>→</span></button>
           </div>
         </div>
 
@@ -5951,15 +5931,16 @@
       {
         id: 'gemma-welcome',
         role: 'assistant',
-        text: `### ✦ Hello, I'm Adapt AI — your Gemma 4 Companion
+        text: `### ✦ Welcome to Adapt AI
+Your supportive companion powered by **Gemma 4**.
 
-I'm here as a supportive, non-judgmental space where you can **discuss anything on your mind**:
-- 💭 **Feeling overwhelmed or stuck?** Let's talk it through and lighten the load.
-- 🧭 **Where are you lagging?** Ask me to diagnose your current study & schedule progress based on your live planner.
-- ⚡ **Need to structure your day?** Tell me what you want to achieve and we'll build a calm plan.
-- 📷 **Have an image?** Attach or paste photos of notes, syllabus, diagrams, or errors for visual breakdown.
+Here is how I can help you today:
+- 💭 **Feeling overwhelmed or stuck?** Talk through what is heavy, and we will find a calm next step.
+- 🧭 **Where are you lagging?** Ask for a live progress diagnosis across your tasks and exams.
+- ⚡ **Daily structure:** Tell me what you need to achieve, and we'll craft a realistic, balanced routine.
+- 📷 **Visual reasoning:** Paste or attach photos of notes, syllabus, or errors for instant breakdown.
 
-*What's on your mind right now?*`,
+*What would help you most right now?*`,
         timestamp: Date.now(),
       },
     ];
@@ -5989,11 +5970,11 @@ I'm here as a supportive, non-judgmental space where you can **discuss anything 
             <span class="gemma-task-pill-icon">📋</span>
             <div>
               <strong class="gemma-task-pill-title">${escapeHtml(title)}</strong>
-              <span class="gemma-task-pill-meta">${duration}m • ${priority}</span>
+              <span class="gemma-task-pill-meta">${duration}m • ${priority} priority</span>
             </div>
           </div>
           <button type="button" class="gemma-add-task-btn" data-gemma-task="${payload}">
-            + Add to My Planner
+            + Add to Planner
           </button>
         </div>
       `;
@@ -6075,29 +6056,28 @@ I'm here as a supportive, non-judgmental space where you can **discuss anything 
     let prefix = noticePrefix ? `*${noticePrefix}*\n\n` : '';
 
     if (attachedImage) {
-      return prefix + `### 📷 Visual Assessment: "${escapeHtml(attachedImage.name || 'Uploaded Asset')}"
+      return prefix + `### 📷 Image Received: "${escapeHtml(attachedImage.name || 'Uploaded Asset')}"
 
-I received your image! Here is an initial review:
 - **File:** ${escapeHtml(attachedImage.name || 'Image')} (${Math.round((attachedImage.base64?.length || 0) * 0.75 / 1024)} KB)
 - **Question:** "${escapeHtml(userPrompt)}"
-- **Live Cloud Reasoning:** To activate full cloud computer-vision reasoning using Google's multimodal Gemma 4 model, click the **⚙️ Settings** icon above and paste your free Google AI Studio API key!
+- **Live Multimodal Mode:** To activate cloud visual reasoning via Google's multimodal Gemma 4 model, click the **⚙️ Settings** icon in the header and paste your Google AI Studio API key!
 
-In the meantime, feel free to describe the core questions or equations in text, and we can solve them together!`;
+Feel free to describe the core question or problem in text, and we can solve it together right now!`;
     }
 
     if (p.includes('overwhelm') || p.includes('stress') || p.includes('anxious') || p.includes('tired') || p.includes('burnout') || p.includes('can\'t focus') || p.includes('procrastinat')) {
       return prefix + `### 💭 Let's Take a Breath, ${userName}
 
-It is completely valid to feel overwhelmed. When you have multiple tasks on your plate, your brain perceives everything as an immediate emergency, which triggers freeze mode and fatigue.
+It is completely normal to feel overwhelmed. When there are several tasks in motion, your brain treats all of them as immediate threats, which leads to avoidance and fatigue.
 
 **Here is our calm 3-step reset:**
-1. **Right now is okay:** You do not have to conquer the whole semester or week today. Just the next 20 minutes.
-2. **Decompress first:** Step away from the screen for 2 minutes and drink a glass of water.
-3. **One micro-win:** When you return, tackle just ONE small, low-resistance task to build momentum without pressure.
+1. **Right now is safe:** You don't need to finish everything today. Just the next 20 minutes.
+2. **Decompress first:** Step away from the screen for 2 minutes and drink water.
+3. **One tiny win:** When you return, take on just ONE low-resistance task to build momentum without stress.
 
 [Task: "15-minute gentle reset & water break" | Duration: 15 | Priority: Low | Category: cat-personal]
 
-How does your mind feel right now? Are you physically exhausted, or just mentally overloaded? Tell me and we can recalibrate your day.`;
+How does your body feel right now? Are you physically exhausted, or just mentally overloaded? Tell me and we will adjust your routine.`;
     }
 
     if (p.includes('lag') || p.includes('behind') || p.includes('progress') || p.includes('delay') || p.includes('where am i')) {
@@ -6105,7 +6085,7 @@ How does your mind feel right now? Are you physically exhausted, or just mentall
       if (overdueTasks.length > 0) {
         lagAnalysis += `\n- ⚠️ **Overdue Tasks (${overdueTasks.length}):** ${overdueTasks.slice(0, 3).map(t => `"${t.title}"`).join(', ')}`;
       } else {
-        lagAnalysis += `\n- ✅ **Deadlines:** No tasks are strictly overdue! You are keeping up with hard deadlines.`;
+        lagAnalysis += `\n- ✅ **Deadlines:** No tasks are strictly overdue! You are on track with hard deadlines.`;
       }
 
       if (totalLost > 0) {
@@ -6139,7 +6119,7 @@ ${lagAnalysis}
     if (p.includes('plan') || p.includes('evening') || p.includes('schedule') || p.includes('day') || p.includes('routine')) {
       return prefix + `### ⚡ Calm Day & Evening Structure
 
-Here is a balanced outline designed to prevent burnout while moving the needle forward:
+Here is a balanced outline designed to prevent burnout while moving forward:
 
 - **Block 1 (Deep Work • 45m):** Focus on your highest priority task when your energy is fresh.
 - **Intermission (15m):** Snack, hydration, no doom-scrolling.
@@ -6164,12 +6144,12 @@ Tell me the exact problem or pattern you're working through and we can walk thro
 
     return prefix + `### ✦ I Hear You, ${userName}
 
-Thank you for sharing that with me. Whether you're navigating a specific dilemma, feeling stuck, or trying to organize your thoughts, having a clear sounding board makes all the difference.
+Thank you for sharing that with me. Whether you're navigating a dilemma, feeling stuck, or trying to organize your thoughts, having a clear sounding board makes all the difference.
 
 Here are a few ways we can approach this:
 - If this is a **complex problem**, let's isolate the very first step together.
 - If this is **time or task pressure**, we can rebalance your Adapt timeline to give you breathing room.
-- If you have notes, slides, or code screenshots, hit **📎 Attach Image** below to review them visually with Gemma 4!
+- If you have notes, slides, or code screenshots, hit **📎 Attach** below to review them visually with Gemma 4!
 
 What aspect feels most urgent to you right now?`;
   }
@@ -6266,25 +6246,26 @@ ${contextStr}`;
             <div class="gemma-header-left">
               <div class="gemma-header-avatar">✦</div>
               <div class="gemma-header-titles">
-                <span class="gemma-header-title">
-                  Adapt AI Companion
+                <div class="gemma-header-title">
+                  <span>Adapt AI</span>
                   <span class="gemma-tag-track1">Gemma 4</span>
-                </span>
-                <span class="gemma-status-pill">
-                  <span class="gemma-status-dot"></span>
-                  ${hasApiKey ? 'Gemma 4 Cloud Connected' : 'Offline Heuristic Mode (Ready)'}
-                </span>
+                </div>
+                <div class="gemma-status-pill">
+                  <span class="gemma-status-dot ${hasApiKey ? 'online' : ''}"></span>
+                  <span>${hasApiKey ? 'Gemma 4 Cloud Active' : 'Offline Companion Ready'}</span>
+                </div>
               </div>
             </div>
 
             <div class="gemma-header-actions">
               <button class="gemma-toggle-context-btn ${includeContext ? 'active' : ''}" id="btn-gemma-toggle-context" title="Toggle planner context grounding">
-                <span>🧠</span>
-                <span>Context: ${includeContext ? 'ON' : 'OFF'}</span>
+                <span style="font-size:12px;">🧠</span>
+                <span class="gemma-context-label">Grounding:</span>
+                <span class="gemma-context-state font-mono">${includeContext ? 'ON' : 'OFF'}</span>
               </button>
-              <button class="gemma-icon-btn" id="btn-gemma-toggle-settings" title="API Key & Model Settings">⚙️</button>
+              <button class="gemma-icon-btn ${settingsOpen ? 'active' : ''}" id="btn-gemma-toggle-settings" title="API Key & Model Settings">⚙️</button>
               <button class="gemma-icon-btn" id="btn-gemma-clear-chat" title="Clear Chat History">🗑️</button>
-              <button class="gemma-icon-btn" id="btn-gemma-close-modal" title="Close">✕</button>
+              <button class="gemma-icon-btn gemma-close-btn" id="btn-gemma-close-modal" title="Close">✕</button>
             </div>
           </div>
 
@@ -6297,11 +6278,11 @@ ${contextStr}`;
               </div>
               <div class="gemma-settings-grid">
                 <div>
-                  <label class="label-title" style="font-size:11px;">Gemini / Gemma API Key</label>
+                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">Gemini / Gemma API Key</label>
                   <input type="password" class="input-text font-mono" id="gemma-input-apikey" value="${escapeHtml(state.gemmaChat.apiKey)}" placeholder="AIzaSy..." style="width:100%;font-size:12px;" />
                 </div>
                 <div>
-                  <label class="label-title" style="font-size:11px;">Model</label>
+                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">Model</label>
                   <select class="select-input" id="gemma-select-model" style="width:100%;font-size:12px;">
                     <option value="gemini-2.5-flash" ${state.gemmaChat.model === 'gemini-2.5-flash' ? 'selected' : ''}>gemini-2.5-flash (Gemma multimodal)</option>
                     <option value="gemini-2.0-flash" ${state.gemmaChat.model === 'gemini-2.0-flash' ? 'selected' : ''}>gemini-2.0-flash</option>
@@ -6309,8 +6290,8 @@ ${contextStr}`;
                   </select>
                 </div>
               </div>
-              <div class="flex justify-between items-center mt-1">
-                <span class="text-xs text-muted">Stored securely in your local browser only.</span>
+              <div class="flex justify-between items-center mt-2">
+                <span class="text-xs text-muted">Stored securely in your browser's localStorage.</span>
                 <button class="btn btn-sm btn-primary" id="btn-gemma-save-settings">Save Settings</button>
               </div>
             </div>
@@ -6318,11 +6299,21 @@ ${contextStr}`;
 
           <!-- Quick Chips Bar -->
           <div class="gemma-chips-row">
-            <button class="gemma-quick-chip" data-quick-prompt="I'm feeling overwhelmed today, can you help me decompress and prioritize?">💭 Feeling Overwhelmed</button>
-            <button class="gemma-quick-chip" data-quick-prompt="Where am I lagging in my schedule and subjects, and what should I focus on?">🧭 Where am I lagging?</button>
-            <button class="gemma-quick-chip" data-quick-prompt="Help me organize a calm and realistic plan for the rest of today.">⚡ Plan My Day</button>
-            <button class="gemma-quick-chip" data-quick-prompt="Can you break down a hard problem step-by-step with me?">🧩 Break Down Problem</button>
-            <button class="gemma-quick-chip" data-quick-prompt="What should I do if I keep getting distracted and losing study hours?">⚠️ Distraction Advice</button>
+            <button class="gemma-quick-chip" data-quick-prompt="I'm feeling overwhelmed today, can you help me decompress and prioritize?">
+              <span>💭</span> <span>Feeling Overwhelmed</span>
+            </button>
+            <button class="gemma-quick-chip" data-quick-prompt="Where am I lagging in my schedule and subjects, and what should I focus on?">
+              <span>🧭</span> <span>Where am I lagging?</span>
+            </button>
+            <button class="gemma-quick-chip" data-quick-prompt="Help me organize a calm and realistic plan for the rest of today.">
+              <span>⚡</span> <span>Plan My Day</span>
+            </button>
+            <button class="gemma-quick-chip" data-quick-prompt="Can you break down a hard problem step-by-step with me?">
+              <span>🧩</span> <span>Break Down Problem</span>
+            </button>
+            <button class="gemma-quick-chip" data-quick-prompt="What should I do if I keep getting distracted and losing study hours?">
+              <span>⚠️</span> <span>Distraction Advice</span>
+            </button>
           </div>
 
           <!-- Messages Scroll Area -->
@@ -6352,35 +6343,44 @@ ${contextStr}`;
             ` : ''}
           </div>
 
-          <!-- Input Area -->
+          <!-- Input Area (Unified sleek card) -->
           <div class="gemma-modal-input-area">
             ${attachedImage ? `
               <div class="gemma-attach-preview-bar">
                 <img src="${attachedImage.dataUrl}" class="gemma-attach-thumb" alt="Preview" />
-                <span class="gemma-attach-info">📷 ${escapeHtml(attachedImage.name)}</span>
+                <div class="gemma-attach-meta">
+                  <span class="gemma-attach-name">📷 ${escapeHtml(attachedImage.name)}</span>
+                  <span class="gemma-attach-sub">Attached for visual reasoning</span>
+                </div>
                 <button type="button" class="gemma-attach-remove-btn" id="btn-gemma-remove-attach" title="Remove attachment">✕</button>
               </div>
             ` : ''}
 
-            <div class="gemma-input-controls-row">
+            <div class="gemma-input-box">
               <input type="file" id="gemma-file-input" accept="image/*" style="display:none;" />
-              <button type="button" class="gemma-attach-trigger-btn" id="btn-gemma-trigger-attach" title="Attach photo of notes, errors, or syllabus">📎</button>
+              <button type="button" class="gemma-attach-trigger-btn" id="btn-gemma-trigger-attach" title="Attach photo of notes, errors, or slides">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
               
               <textarea 
                 class="gemma-input-textarea" 
                 id="gemma-input-text" 
-                placeholder="Talk about what's on your mind, ask for guidance, or paste an image... (Enter to send)" 
+                placeholder="Ask anything, share a challenge, or paste an image... (Enter to send)" 
                 rows="1"
               ></textarea>
 
               <button type="button" class="gemma-send-submit-btn" id="btn-gemma-send" ${isGenerating ? 'disabled' : ''} title="Send message">
-                ➤
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
               </button>
             </div>
 
             <div class="gemma-footer-hint">
-              <span>Shift+Enter for newline • Paste images directly (Ctrl+V)</span>
-              <span>Gemma 4 Multimodal • Hacktoberfest 2026 Track 1</span>
+              <span>Press <strong>Enter</strong> to send • <strong>Shift+Enter</strong> for newline • Paste screenshots directly (Ctrl+V)</span>
             </div>
           </div>
         </div>
@@ -6428,33 +6428,6 @@ ${contextStr}`;
       render();
       scrollGemmaToBottom();
       document.getElementById('gemma-input-text')?.focus();
-    });
-
-    // Dashboard Banner Trigger & CTA
-    document.getElementById('btn-dashboard-gemma')?.addEventListener('click', () => {
-      state.gemmaChat.isOpen = true;
-      render();
-      scrollGemmaToBottom();
-      document.getElementById('gemma-input-text')?.focus();
-    });
-
-    document.getElementById('btn-open-gemma-cta')?.addEventListener('click', () => {
-      state.gemmaChat.isOpen = true;
-      render();
-      scrollGemmaToBottom();
-      document.getElementById('gemma-input-text')?.focus();
-    });
-
-    // Dashboard Banner prompt chips
-    document.querySelectorAll('.gemma-banner-card .gemma-chip-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const promptText = btn.getAttribute('data-gemma-prompt');
-        if (promptText) {
-          state.gemmaChat.isOpen = true;
-          render();
-          handleGemmaUserSend(promptText);
-        }
-      });
     });
 
     if (!state.gemmaChat.isOpen) return;
@@ -6557,6 +6530,12 @@ ${contextStr}`;
     // Input Textarea
     const textarea = document.getElementById('gemma-input-text');
     if (textarea) {
+      const autoGrow = () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(120, Math.max(24, textarea.scrollHeight)) + 'px';
+      };
+      textarea.addEventListener('input', autoGrow);
+
       textarea.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();

@@ -1675,6 +1675,16 @@
     timelineView: 'agenda', // 'agenda' (default, non-overlapping) or 'grid' (hour scale)
     currentTime: new Date(),
     viewDate: getTodayISO(), // Date being viewed/planned (defaults to Today)
+    gemmaChat: {
+      isOpen: false,
+      isGenerating: false,
+      apiKey: localStorage.getItem('adapt_gemini_api_key') || '',
+      model: localStorage.getItem('adapt_gemini_model') || 'gemini-2.5-flash',
+      includeContext: localStorage.getItem('adapt_gemma_context') !== 'false',
+      settingsOpen: false,
+      attachedImage: null, // { name, mimeType, base64, dataUrl }
+      messages: [],
+    },
   };
 
   // Ensure scheduleConfig always exists
@@ -1928,12 +1938,17 @@
           ${renderCurrentTabHtml()}
         </main>
         <div id="modal-slot"></div>
+        ${renderGemmaFabHtml()}
+        <div id="gemma-companion-slot">
+          ${renderGemmaCompanionHtml()}
+        </div>
       </div>
     `;
 
     renderBanner();
     renderModal();
     attachEventListeners();
+    attachGemmaListeners();
   }
 
   function renderBanner() {
@@ -2003,6 +2018,11 @@
                 <span>${overdue} overdue</span>
               </div>
             ` : ''}
+            <button class="gemma-nav-trigger-btn" id="btn-gemma-nav-trigger" title="Ask Gemma 4 AI Companion">
+              <span class="gemma-nav-sparkle">✦</span>
+              <span class="gemma-nav-text">Gemma 4 AI</span>
+              <span class="gemma-nav-pill">Track 1</span>
+            </button>
             <button class="theme-toggle-btn" id="btn-theme-toggle" title="Toggle Theme">
               ${state.theme === 'dark' ? '☀️' : '🌙'}
             </button>
@@ -2128,12 +2148,32 @@
               <button class="btn btn-secondary" id="btn-what-now"><span>✨ What should I do now?</span></button>
               <button class="btn btn-secondary text-amber" id="btn-lost-time"><span>⚠️ Lost time</span></button>
               <button class="btn btn-secondary" id="btn-brain-dump" style="color:#a855f7;"><span>🧠 Auto-Schedule Week</span></button>
+              <button class="btn btn-secondary" id="btn-dashboard-gemma" style="border-color:rgba(139,92,246,0.5);color:#c4b5fd;"><span>✦ Ask Gemma AI</span></button>
             </div>
 
             <div class="control-right">
               <button class="btn btn-ghost" id="btn-regen-plan"><span>⚡ Recalculate schedule</span></button>
               <button class="btn btn-ghost" id="btn-end-day"><span>🌙 End-of-Day Review</span></button>
             </div>
+          </div>
+        </div>
+
+        <div class="gemma-banner-card animate-fade-in" id="card-open-gemma">
+          <div class="gemma-banner-left">
+            <div class="gemma-avatar-badge">✦</div>
+            <div>
+              <div class="gemma-banner-title">
+                <span>Adapt AI Life & Problem-Solving Companion</span>
+                <span class="gemma-tag-track1">Gemma 4 Multimodal</span>
+              </div>
+              <p class="gemma-banner-desc">Feeling overwhelmed, stuck on a problem, or wondering where you're lagging? Chat freely with Gemma 4 or attach screenshots/notes for compassionate, clear guidance.</p>
+            </div>
+          </div>
+          <div class="gemma-banner-chips">
+            <button class="gemma-chip-btn" data-gemma-prompt="I'm feeling overwhelmed today, can you help me decompress and prioritize?">💭 Feeling Overwhelmed</button>
+            <button class="gemma-chip-btn" data-gemma-prompt="Where am I lagging in my schedule and subjects, and what should I focus on?">🧭 Where am I lagging?</button>
+            <button class="gemma-chip-btn" data-gemma-prompt="Help me organize a calm and realistic plan for the rest of today.">⚡ Plan My Day</button>
+            <button class="btn btn-sm btn-primary gemma-chat-cta" id="btn-open-gemma-cta"><span>Chat with Gemma</span> <span>→</span></button>
           </div>
         </div>
 
@@ -5893,7 +5933,744 @@
     });
   }
 
+  // =========================================================================
+  // GEMMA 4 MULTIMODAL AI COMPANION (HACKTOBERFEST 2026 - TRACK 1)
+  // =========================================================================
+
+  function loadGemmaChatHistory() {
+    try {
+      const raw = localStorage.getItem('adapt_gemma_chat_history');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to load Gemma chat history:', e);
+    }
+    return [
+      {
+        id: 'gemma-welcome',
+        role: 'assistant',
+        text: `### ✦ Hello, I'm Adapt AI — your Gemma 4 Companion
+
+I'm here as a supportive, non-judgmental space where you can **discuss anything on your mind**:
+- 💭 **Feeling overwhelmed or stuck?** Let's talk it through and lighten the load.
+- 🧭 **Where are you lagging?** Ask me to diagnose your current study & schedule progress based on your live planner.
+- ⚡ **Need to structure your day?** Tell me what you want to achieve and we'll build a calm plan.
+- 📷 **Have an image?** Attach or paste photos of notes, syllabus, diagrams, or errors for visual breakdown.
+
+*What's on your mind right now?*`,
+        timestamp: Date.now(),
+      },
+    ];
+  }
+
+  function saveGemmaChatHistory(messages) {
+    try {
+      localStorage.setItem('adapt_gemma_chat_history', JSON.stringify(messages.slice(-30)));
+    } catch (e) {
+      console.warn('Failed to save Gemma chat history:', e);
+    }
+  }
+
+  function formatGemmaMarkdown(rawText) {
+    if (!rawText) return '';
+    let html = escapeHtml(rawText);
+
+    // 1. Task cards: [Task: "Title" | Duration: 30 | Priority: High | Category: cat-dsa]
+    html = html.replace(/\[Task:\s*(?:&quot;|"|')(.*?)[\"']\s*\|\s*Duration:\s*(\d+)(?:\s*\|\s*Priority:\s*(\w+))?(?:\s*\|\s*Category:\s*([\w-]+))?\]/gi, (match, title, dur, prio, cat) => {
+      const duration = dur || 30;
+      const priority = prio || 'Medium';
+      const category = cat || FALLBACK_CATEGORY_ID;
+      const payload = encodeURIComponent(JSON.stringify({ title, duration: Number(duration), priority, category }));
+      return `
+        <div class="gemma-task-pill-card">
+          <div class="gemma-task-pill-info">
+            <span class="gemma-task-pill-icon">📋</span>
+            <div>
+              <strong class="gemma-task-pill-title">${escapeHtml(title)}</strong>
+              <span class="gemma-task-pill-meta">${duration}m • ${priority}</span>
+            </div>
+          </div>
+          <button type="button" class="gemma-add-task-btn" data-gemma-task="${payload}">
+            + Add to My Planner
+          </button>
+        </div>
+      `;
+    });
+
+    // 2. Code blocks
+    html = html.replace(/```([a-z0-9_-]*)\n([\s\S]*?)```/gi, (match, lang, code) => {
+      return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
+    });
+
+    // 3. Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // 4. Headers
+    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^# (.*$)/gim, '<h3>$1</h3>');
+
+    // 5. Bold & Italic
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // 6. Lists
+    html = html.replace(/^\s*[-*]\s+(.*)$/gim, '<li>$1</li>');
+    html = html.replace(/(<li>[\s\S]*?<\/li>)/gi, '<ul>$1</ul>');
+    html = html.replace(/<\/ul>\s*<ul>/gi, '');
+
+    // 7. Paragraphs
+    const paragraphs = html.split(/\n\n+/);
+    html = paragraphs.map(p => {
+      p = p.trim();
+      if (!p) return '';
+      if (p.startsWith('<h3>') || p.startsWith('<pre>') || p.startsWith('<ul>') || p.startsWith('<div class="gemma-task-pill-card"')) {
+        return p;
+      }
+      return `<p>${p.replace(/\n/g, '<br/>')}</p>`;
+    }).join('');
+
+    return html;
+  }
+
+  function buildGemmaGroundingContext() {
+    const today = getTodayISO();
+    const pendingTasks = state.tasks.filter(t => t.status === 'pending');
+    const overdueTasks = pendingTasks.filter(t => t.deadline && t.deadline < today);
+    const criticalTasks = pendingTasks.filter(t => t.priority === 'Critical' || t.priority === 'High');
+    const recentLost = state.lostTimeEvents.reduce((acc, ev) => acc + (Number(ev.minutes) || 0), 0);
+
+    const subjectsSummary = state.collegeSubjects.map(s => {
+      const total = s.topics ? s.topics.length : 0;
+      const done = s.topics ? s.topics.filter(t => t.status === 'done').length : 0;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      return `${s.name} (${pct}% complete, Exam: ${s.examDate || 'Not set'})`;
+    }).join('; ');
+
+    const dsaSummary = state.dsaTopics.map(d => `${d.name}: ${d.status} (${d.problemsSolved} solved)`).join('; ');
+
+    return `
+[SYSTEM GROUNDED CONTEXT FROM LIVE ADAPT STATE]:
+- User: ${state.user?.name || 'Friend'}
+- Current Time: ${new Date().toLocaleString()}
+- Total Pending Tasks: ${pendingTasks.length} (${criticalTasks.length} high/critical priority, ${overdueTasks.length} overdue)
+- Overdue Tasks: ${overdueTasks.slice(0, 3).map(t => `"${t.title}" (due ${t.deadline})`).join(', ') || 'None'}
+- Top Pending Tasks: ${pendingTasks.slice(0, 3).map(t => `"${t.title}" (${t.duration}m, ${t.priority})`).join(', ') || 'None'}
+- Recent Distraction/Lost Time Logged: ${recentLost} minutes
+- College Subjects Progress: ${subjectsSummary || 'None logged'}
+- DSA Tracker Summary: ${dsaSummary.slice(0, 300) || 'None logged'}
+`.trim();
+  }
+
+  function generateLocalHeuristicResponse(userPrompt, attachedImage, noticePrefix = '') {
+    const p = (userPrompt || '').toLowerCase();
+    const userName = state.user?.name || 'Friend';
+    const today = getTodayISO();
+    const pendingTasks = state.tasks.filter(t => t.status === 'pending');
+    const overdueTasks = pendingTasks.filter(t => t.deadline && t.deadline < today);
+    const totalLost = state.lostTimeEvents.reduce((acc, ev) => acc + (Number(ev.minutes) || 0), 0);
+
+    let prefix = noticePrefix ? `*${noticePrefix}*\n\n` : '';
+
+    if (attachedImage) {
+      return prefix + `### 📷 Visual Assessment: "${escapeHtml(attachedImage.name || 'Uploaded Asset')}"
+
+I received your image! Here is an initial review:
+- **File:** ${escapeHtml(attachedImage.name || 'Image')} (${Math.round((attachedImage.base64?.length || 0) * 0.75 / 1024)} KB)
+- **Question:** "${escapeHtml(userPrompt)}"
+- **Live Cloud Reasoning:** To activate full cloud computer-vision reasoning using Google's multimodal Gemma 4 model, click the **⚙️ Settings** icon above and paste your free Google AI Studio API key!
+
+In the meantime, feel free to describe the core questions or equations in text, and we can solve them together!`;
+    }
+
+    if (p.includes('overwhelm') || p.includes('stress') || p.includes('anxious') || p.includes('tired') || p.includes('burnout') || p.includes('can\'t focus') || p.includes('procrastinat')) {
+      return prefix + `### 💭 Let's Take a Breath, ${userName}
+
+It is completely valid to feel overwhelmed. When you have multiple tasks on your plate, your brain perceives everything as an immediate emergency, which triggers freeze mode and fatigue.
+
+**Here is our calm 3-step reset:**
+1. **Right now is okay:** You do not have to conquer the whole semester or week today. Just the next 20 minutes.
+2. **Decompress first:** Step away from the screen for 2 minutes and drink a glass of water.
+3. **One micro-win:** When you return, tackle just ONE small, low-resistance task to build momentum without pressure.
+
+[Task: "15-minute gentle reset & water break" | Duration: 15 | Priority: Low | Category: cat-personal]
+
+How does your mind feel right now? Are you physically exhausted, or just mentally overloaded? Tell me and we can recalibrate your day.`;
+    }
+
+    if (p.includes('lag') || p.includes('behind') || p.includes('progress') || p.includes('delay') || p.includes('where am i')) {
+      let lagAnalysis = '';
+      if (overdueTasks.length > 0) {
+        lagAnalysis += `\n- ⚠️ **Overdue Tasks (${overdueTasks.length}):** ${overdueTasks.slice(0, 3).map(t => `"${t.title}"`).join(', ')}`;
+      } else {
+        lagAnalysis += `\n- ✅ **Deadlines:** No tasks are strictly overdue! You are keeping up with hard deadlines.`;
+      }
+
+      if (totalLost > 0) {
+        lagAnalysis += `\n- ⏱️ **Lost Time:** You've logged ${totalLost} minutes of distractions recently (~${(totalLost/60).toFixed(1)} hours).`;
+      }
+
+      const collegeLag = state.collegeSubjects.map(s => {
+        const done = s.topics ? s.topics.filter(t => t.status === 'done').length : 0;
+        const total = s.topics ? s.topics.length : 1;
+        const pct = Math.round((done / total) * 100);
+        return { name: s.name, pct };
+      }).filter(s => s.pct < 60);
+
+      if (collegeLag.length > 0) {
+        lagAnalysis += `\n- 📚 **Subjects Needing Attention:** ${collegeLag.map(c => `${c.name} (${c.pct}% coverage)`).join(', ')}`;
+      }
+
+      return prefix + `### 🧭 Live Diagnostic: Where You Stand Today
+
+Here is an honest, non-judgmental look at your planner metrics:
+${lagAnalysis}
+
+**Recommended Catch-Up Strategy:**
+- Do not sprint through all backlog items in one night.
+- Pick **one** priority task and allocate a focused 45-minute sprint with phone notifications muted.
+- Reschedule non-critical tasks to tomorrow using Adapt's automatic timeline planner.
+
+[Task: "45-min Priority Catch-Up Sprint" | Duration: 45 | Priority: High | Category: cat-dsa]`;
+    }
+
+    if (p.includes('plan') || p.includes('evening') || p.includes('schedule') || p.includes('day') || p.includes('routine')) {
+      return prefix + `### ⚡ Calm Day & Evening Structure
+
+Here is a balanced outline designed to prevent burnout while moving the needle forward:
+
+- **Block 1 (Deep Work • 45m):** Focus on your highest priority task when your energy is fresh.
+- **Intermission (15m):** Snack, hydration, no doom-scrolling.
+- **Block 2 (Review or College • 45m):** Solidify key concepts or solve practice problems.
+- **Evening Wind-down (30m):** Personal time, light reading, and logging your daily reflection in Adapt.
+
+Would you like me to slot a focused work block into your planner right now?
+[Task: "Evening Deep Work Block" | Duration: 45 | Priority: High | Category: cat-college]`;
+    }
+
+    if (p.includes('dsa') || p.includes('algorithm') || p.includes('code') || p.includes('leetcode') || p.includes('tree') || p.includes('graph') || p.includes('dp')) {
+      return prefix + `### 🌲 Algorithmic Problem Solving Strategy
+
+When tackling DSA patterns:
+1. **Understand the Invariant:** Don't memorize code; identify the condition that holds true at every step (e.g., Two Pointers: search space shrinks monotonically; BFS: finds shortest unweighted path).
+2. **Brute Force First:** State the $O(N^2)$ or exponential solution out loud before optimizing.
+3. **Space/Time Tradeoff:** Can a hash map, prefix sum, or two-pointer window bring time down to $O(N)$?
+
+Tell me the exact problem or pattern you're working through and we can walk through the edge cases together!
+[Task: "30-min DSA Pattern Practice" | Duration: 30 | Priority: Medium | Category: cat-dsa]`;
+    }
+
+    return prefix + `### ✦ I Hear You, ${userName}
+
+Thank you for sharing that with me. Whether you're navigating a specific dilemma, feeling stuck, or trying to organize your thoughts, having a clear sounding board makes all the difference.
+
+Here are a few ways we can approach this:
+- If this is a **complex problem**, let's isolate the very first step together.
+- If this is **time or task pressure**, we can rebalance your Adapt timeline to give you breathing room.
+- If you have notes, slides, or code screenshots, hit **📎 Attach Image** below to review them visually with Gemma 4!
+
+What aspect feels most urgent to you right now?`;
+  }
+
+  async function requestGemmaAIResponse(userPrompt, attachedImage) {
+    const apiKey = state.gemmaChat.apiKey?.trim();
+    const model = state.gemmaChat.model || 'gemini-2.5-flash';
+    const includeContext = state.gemmaChat.includeContext !== false;
+    const contextStr = includeContext ? buildGemmaGroundingContext() : '';
+
+    if (apiKey) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        
+        const systemPrompt = `You are Adapt AI, an empathetic, supportive, and practical personal life companion and problem-solver powered by Gemma 4. 
+Users come to you with stress, feeling overwhelmed, procrastination, balancing daily life, understanding difficult academic concepts, or planning their day.
+Respond warmly, concisely, and insightfully. Never be overly robotic or generic. Avoid toxic positivity.
+When recommending concrete tasks, provide them in this format on their own line:
+[Task: "Task Name" | Duration: 30 | Priority: Medium | Category: cat-personal]
+Categories: cat-dsa (DSA), cat-college (College/Exams), cat-dev (Software Dev), cat-research (Research), cat-personal (Personal/Health), cat-other (General).
+
+${contextStr}`;
+
+        const userParts = [];
+        userParts.push({ text: `${systemPrompt}\n\nUser Message:\n${userPrompt}` });
+
+        if (attachedImage && attachedImage.base64) {
+          userParts.push({
+            inlineData: {
+              mimeType: attachedImage.mimeType || 'image/jpeg',
+              data: attachedImage.base64,
+            },
+          });
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: userParts }],
+            generationConfig: {
+              temperature: 0.7,
+              topP: 0.9,
+              maxOutputTokens: 1024,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          console.warn('Gemma API HTTP error:', res.status, errText);
+          return generateLocalHeuristicResponse(userPrompt, attachedImage, `(Google API returned status ${res.status}. Switched to local offline intelligence)`);
+        }
+
+        const json = await res.json();
+        const candidateText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (candidateText) {
+          return candidateText;
+        }
+      } catch (apiErr) {
+        console.warn('Gemma API fetch failed:', apiErr);
+        return generateLocalHeuristicResponse(userPrompt, attachedImage, '(Live API unreachable. Using local companion intelligence)');
+      }
+    }
+
+    return generateLocalHeuristicResponse(userPrompt, attachedImage);
+  }
+
+  function renderGemmaFabHtml() {
+    return `
+      <button class="gemma-fab-btn" id="btn-gemma-fab" title="Chat with Adapt AI (Gemma 4)">
+        <span class="gemma-fab-icon">✦</span>
+        <span class="gemma-fab-label">Ask Gemma</span>
+        <span class="gemma-fab-badge">Track 1</span>
+      </button>
+    `;
+  }
+
+  function renderGemmaCompanionHtml() {
+    if (!state.gemmaChat.isOpen) return '';
+
+    const messages = state.gemmaChat.messages;
+    const settingsOpen = state.gemmaChat.settingsOpen;
+    const attachedImage = state.gemmaChat.attachedImage;
+    const isGenerating = state.gemmaChat.isGenerating;
+    const includeContext = state.gemmaChat.includeContext !== false;
+    const hasApiKey = !!state.gemmaChat.apiKey;
+
+    return `
+      <div class="gemma-companion-overlay" id="gemma-overlay">
+        <div class="gemma-companion-modal card" id="gemma-modal" role="dialog" aria-modal="true">
+          <!-- Header -->
+          <div class="gemma-modal-header">
+            <div class="gemma-header-left">
+              <div class="gemma-header-avatar">✦</div>
+              <div class="gemma-header-titles">
+                <span class="gemma-header-title">
+                  Adapt AI Companion
+                  <span class="gemma-tag-track1">Gemma 4</span>
+                </span>
+                <span class="gemma-status-pill">
+                  <span class="gemma-status-dot"></span>
+                  ${hasApiKey ? 'Gemma 4 Cloud Connected' : 'Offline Heuristic Mode (Ready)'}
+                </span>
+              </div>
+            </div>
+
+            <div class="gemma-header-actions">
+              <button class="gemma-toggle-context-btn ${includeContext ? 'active' : ''}" id="btn-gemma-toggle-context" title="Toggle planner context grounding">
+                <span>🧠</span>
+                <span>Context: ${includeContext ? 'ON' : 'OFF'}</span>
+              </button>
+              <button class="gemma-icon-btn" id="btn-gemma-toggle-settings" title="API Key & Model Settings">⚙️</button>
+              <button class="gemma-icon-btn" id="btn-gemma-clear-chat" title="Clear Chat History">🗑️</button>
+              <button class="gemma-icon-btn" id="btn-gemma-close-modal" title="Close">✕</button>
+            </div>
+          </div>
+
+          <!-- Settings Drawer (Collapsible) -->
+          ${settingsOpen ? `
+            <div class="gemma-settings-drawer">
+              <div class="gemma-settings-header">
+                <strong>Google AI Studio / Gemini API Settings</strong>
+                <a href="https://aistudio.google.com/" target="_blank" rel="noopener" style="font-size:11px;color:#a855f7;text-decoration:underline;">Get Free API Key ↗</a>
+              </div>
+              <div class="gemma-settings-grid">
+                <div>
+                  <label class="label-title" style="font-size:11px;">Gemini / Gemma API Key</label>
+                  <input type="password" class="input-text font-mono" id="gemma-input-apikey" value="${escapeHtml(state.gemmaChat.apiKey)}" placeholder="AIzaSy..." style="width:100%;font-size:12px;" />
+                </div>
+                <div>
+                  <label class="label-title" style="font-size:11px;">Model</label>
+                  <select class="select-input" id="gemma-select-model" style="width:100%;font-size:12px;">
+                    <option value="gemini-2.5-flash" ${state.gemmaChat.model === 'gemini-2.5-flash' ? 'selected' : ''}>gemini-2.5-flash (Gemma multimodal)</option>
+                    <option value="gemini-2.0-flash" ${state.gemmaChat.model === 'gemini-2.0-flash' ? 'selected' : ''}>gemini-2.0-flash</option>
+                    <option value="gemma-2-9b-it" ${state.gemmaChat.model === 'gemma-2-9b-it' ? 'selected' : ''}>gemma-2-9b-it (Open Weights)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="flex justify-between items-center mt-1">
+                <span class="text-xs text-muted">Stored securely in your local browser only.</span>
+                <button class="btn btn-sm btn-primary" id="btn-gemma-save-settings">Save Settings</button>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Quick Chips Bar -->
+          <div class="gemma-chips-row">
+            <button class="gemma-quick-chip" data-quick-prompt="I'm feeling overwhelmed today, can you help me decompress and prioritize?">💭 Feeling Overwhelmed</button>
+            <button class="gemma-quick-chip" data-quick-prompt="Where am I lagging in my schedule and subjects, and what should I focus on?">🧭 Where am I lagging?</button>
+            <button class="gemma-quick-chip" data-quick-prompt="Help me organize a calm and realistic plan for the rest of today.">⚡ Plan My Day</button>
+            <button class="gemma-quick-chip" data-quick-prompt="Can you break down a hard problem step-by-step with me?">🧩 Break Down Problem</button>
+            <button class="gemma-quick-chip" data-quick-prompt="What should I do if I keep getting distracted and losing study hours?">⚠️ Distraction Advice</button>
+          </div>
+
+          <!-- Messages Scroll Area -->
+          <div class="gemma-messages-scroll" id="gemma-messages-container">
+            ${messages.map(m => `
+              <div class="gemma-msg-row ${m.role === 'user' ? 'user' : 'ai'}">
+                <div class="gemma-msg-avatar">${m.role === 'user' ? '👤' : '✦'}</div>
+                <div class="gemma-msg-bubble">
+                  ${m.image ? `
+                    <div class="gemma-msg-img-box">
+                      <img src="${m.image}" alt="Attached snippet" />
+                    </div>
+                  ` : ''}
+                  <div>${m.role === 'user' ? escapeHtml(m.text).replace(/\n/g, '<br/>') : formatGemmaMarkdown(m.text)}</div>
+                </div>
+              </div>
+            `).join('')}
+
+            ${isGenerating ? `
+              <div class="gemma-msg-row ai">
+                <div class="gemma-msg-avatar">✦</div>
+                <div class="gemma-msg-bubble">
+                  <span class="pulse-dot" style="display:inline-block;margin-right:6px;"></span>
+                  <em>Gemma 4 is reflecting on your question...</em>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Input Area -->
+          <div class="gemma-modal-input-area">
+            ${attachedImage ? `
+              <div class="gemma-attach-preview-bar">
+                <img src="${attachedImage.dataUrl}" class="gemma-attach-thumb" alt="Preview" />
+                <span class="gemma-attach-info">📷 ${escapeHtml(attachedImage.name)}</span>
+                <button type="button" class="gemma-attach-remove-btn" id="btn-gemma-remove-attach" title="Remove attachment">✕</button>
+              </div>
+            ` : ''}
+
+            <div class="gemma-input-controls-row">
+              <input type="file" id="gemma-file-input" accept="image/*" style="display:none;" />
+              <button type="button" class="gemma-attach-trigger-btn" id="btn-gemma-trigger-attach" title="Attach photo of notes, errors, or syllabus">📎</button>
+              
+              <textarea 
+                class="gemma-input-textarea" 
+                id="gemma-input-text" 
+                placeholder="Talk about what's on your mind, ask for guidance, or paste an image... (Enter to send)" 
+                rows="1"
+              ></textarea>
+
+              <button type="button" class="gemma-send-submit-btn" id="btn-gemma-send" ${isGenerating ? 'disabled' : ''} title="Send message">
+                ➤
+              </button>
+            </div>
+
+            <div class="gemma-footer-hint">
+              <span>Shift+Enter for newline • Paste images directly (Ctrl+V)</span>
+              <span>Gemma 4 Multimodal • Hacktoberfest 2026 Track 1</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function addNewTaskFromGemma(payload) {
+    const newTask = {
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: payload.title || 'Task from Gemma',
+      category: payload.category || FALLBACK_CATEGORY_ID,
+      deadline: getTodayISO(),
+      duration: Math.max(5, Math.min(480, Number(payload.duration) || 30)),
+      remaining: Math.max(5, Math.min(480, Number(payload.duration) || 30)),
+      priority: ['Critical', 'High', 'Medium', 'Low'].includes(payload.priority) ? payload.priority : 'Medium',
+      energy: 'Medium',
+      flexibility: 'Flexible',
+      status: 'pending',
+      notes: 'Generated by Adapt AI (Gemma 4)',
+      subtasks: [],
+      startTime: '',
+      breakAfterMin: 0,
+      createdAt: getTodayISO(),
+    };
+    state.tasks.unshift(newTask);
+    recalculateTimeline();
+    saveState();
+    showBanner(`✓ Task "${newTask.title}" added to your planner!`, 'success');
+    render();
+  }
+
+  function attachGemmaListeners() {
+    // FAB Trigger
+    document.getElementById('btn-gemma-fab')?.addEventListener('click', () => {
+      state.gemmaChat.isOpen = true;
+      render();
+      scrollGemmaToBottom();
+      document.getElementById('gemma-input-text')?.focus();
+    });
+
+    // Nav Trigger
+    document.getElementById('btn-gemma-nav-trigger')?.addEventListener('click', () => {
+      state.gemmaChat.isOpen = true;
+      render();
+      scrollGemmaToBottom();
+      document.getElementById('gemma-input-text')?.focus();
+    });
+
+    // Dashboard Banner Trigger & CTA
+    document.getElementById('btn-dashboard-gemma')?.addEventListener('click', () => {
+      state.gemmaChat.isOpen = true;
+      render();
+      scrollGemmaToBottom();
+      document.getElementById('gemma-input-text')?.focus();
+    });
+
+    document.getElementById('btn-open-gemma-cta')?.addEventListener('click', () => {
+      state.gemmaChat.isOpen = true;
+      render();
+      scrollGemmaToBottom();
+      document.getElementById('gemma-input-text')?.focus();
+    });
+
+    // Dashboard Banner prompt chips
+    document.querySelectorAll('.gemma-banner-card .gemma-chip-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const promptText = btn.getAttribute('data-gemma-prompt');
+        if (promptText) {
+          state.gemmaChat.isOpen = true;
+          render();
+          handleGemmaUserSend(promptText);
+        }
+      });
+    });
+
+    if (!state.gemmaChat.isOpen) return;
+
+    // Close Modal Button
+    document.getElementById('btn-gemma-close-modal')?.addEventListener('click', () => {
+      state.gemmaChat.isOpen = false;
+      render();
+    });
+
+    // Overlay outside click
+    document.getElementById('gemma-overlay')?.addEventListener('click', (e) => {
+      if (e.target.id === 'gemma-overlay') {
+        state.gemmaChat.isOpen = false;
+        render();
+      }
+    });
+
+    // Toggle Grounding Context
+    document.getElementById('btn-gemma-toggle-context')?.addEventListener('click', () => {
+      state.gemmaChat.includeContext = !state.gemmaChat.includeContext;
+      localStorage.setItem('adapt_gemma_context', state.gemmaChat.includeContext);
+      showBanner(`Gemma Context Grounding: ${state.gemmaChat.includeContext ? 'Enabled' : 'Disabled'}`, 'info');
+      render();
+    });
+
+    // Toggle Settings
+    document.getElementById('btn-gemma-toggle-settings')?.addEventListener('click', () => {
+      state.gemmaChat.settingsOpen = !state.gemmaChat.settingsOpen;
+      render();
+    });
+
+    // Save Settings
+    document.getElementById('btn-gemma-save-settings')?.addEventListener('click', () => {
+      const keyVal = document.getElementById('gemma-input-apikey')?.value?.trim() || '';
+      const modelVal = document.getElementById('gemma-select-model')?.value || 'gemini-2.5-flash';
+      state.gemmaChat.apiKey = keyVal;
+      state.gemmaChat.model = modelVal;
+      state.gemmaChat.settingsOpen = false;
+      localStorage.setItem('adapt_gemini_api_key', keyVal);
+      localStorage.setItem('adapt_gemini_model', modelVal);
+      showBanner(keyVal ? 'Gemma API settings saved!' : 'Switched to offline heuristic companion.', 'success');
+      render();
+    });
+
+    // Clear Chat
+    document.getElementById('btn-gemma-clear-chat')?.addEventListener('click', () => {
+      if (confirm('Clear chat history with Gemma?')) {
+        state.gemmaChat.messages = loadGemmaChatHistory().slice(0, 1);
+        saveGemmaChatHistory(state.gemmaChat.messages);
+        render();
+      }
+    });
+
+    // Quick Chips in Modal
+    document.querySelectorAll('.gemma-quick-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const promptText = chip.getAttribute('data-quick-prompt');
+        if (promptText) {
+          handleGemmaUserSend(promptText);
+        }
+      });
+    });
+
+    // Add Task from Gemma Message Button
+    document.querySelectorAll('.gemma-add-task-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        try {
+          const raw = btn.getAttribute('data-gemma-task');
+          if (raw) {
+            const parsed = JSON.parse(decodeURIComponent(raw));
+            addNewTaskFromGemma(parsed);
+            btn.classList.add('added');
+            btn.innerText = '✓ Added to Planner';
+          }
+        } catch (err) {
+          console.error('Failed to add task from Gemma:', err);
+        }
+      });
+    });
+
+    // File Attachment
+    const fileInput = document.getElementById('gemma-file-input');
+    document.getElementById('btn-gemma-trigger-attach')?.addEventListener('click', () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      processGemmaImageFile(file);
+    });
+
+    // Remove Attachment
+    document.getElementById('btn-gemma-remove-attach')?.addEventListener('click', () => {
+      state.gemmaChat.attachedImage = null;
+      render();
+    });
+
+    // Input Textarea
+    const textarea = document.getElementById('gemma-input-text');
+    if (textarea) {
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          const text = textarea.value.trim();
+          if (text || state.gemmaChat.attachedImage) {
+            handleGemmaUserSend(text);
+          }
+        }
+      });
+
+      // Paste handler for screenshots (Ctrl+V)
+      textarea.addEventListener('paste', (e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const blob = items[i].getAsFile();
+            if (blob) {
+              processGemmaImageFile(blob, 'pasted-screenshot.png');
+              e.preventDefault();
+              break;
+            }
+          }
+        }
+      });
+    }
+
+    // Send Button
+    document.getElementById('btn-gemma-send')?.addEventListener('click', () => {
+      const text = textarea?.value?.trim() || '';
+      if (text || state.gemmaChat.attachedImage) {
+        handleGemmaUserSend(text);
+      }
+    });
+
+    scrollGemmaToBottom();
+  }
+
+  function processGemmaImageFile(file, overrideName = null) {
+    if (!file.type.startsWith('image/')) {
+      showBanner('Please upload an image file (PNG, JPG, WebP).', 'warning');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      const base64 = dataUrl.split(',')[1];
+      state.gemmaChat.attachedImage = {
+        name: overrideName || file.name || 'image.png',
+        mimeType: file.type || 'image/jpeg',
+        base64,
+        dataUrl,
+      };
+      render();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function scrollGemmaToBottom() {
+    setTimeout(() => {
+      const container = document.getElementById('gemma-messages-container');
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }, 50);
+  }
+
+  async function handleGemmaUserSend(userText) {
+    const prompt = userText || (state.gemmaChat.attachedImage ? 'Please analyze this attached image.' : '');
+    if (!prompt) return;
+
+    const attached = state.gemmaChat.attachedImage;
+
+    const userMessage = {
+      id: `msg-u-${Date.now()}`,
+      role: 'user',
+      text: prompt,
+      image: attached ? attached.dataUrl : null,
+      timestamp: Date.now(),
+    };
+
+    state.gemmaChat.messages.push(userMessage);
+    state.gemmaChat.attachedImage = null; // Reset attachment
+    state.gemmaChat.isGenerating = true;
+    render();
+    scrollGemmaToBottom();
+
+    try {
+      const responseText = await requestGemmaAIResponse(prompt, attached);
+      const aiMessage = {
+        id: `msg-ai-${Date.now()}`,
+        role: 'assistant',
+        text: responseText,
+        timestamp: Date.now(),
+      };
+      state.gemmaChat.messages.push(aiMessage);
+      saveGemmaChatHistory(state.gemmaChat.messages);
+    } catch (err) {
+      console.error('Gemma processing error:', err);
+      state.gemmaChat.messages.push({
+        id: `msg-ai-${Date.now()}`,
+        role: 'assistant',
+        text: `### ⚠️ Could not complete request\n\n${err.message || 'Unknown error occurred. Please check network or API key.'}`,
+        timestamp: Date.now(),
+      });
+    } finally {
+      state.gemmaChat.isGenerating = false;
+      render();
+      scrollGemmaToBottom();
+    }
+  }
+
   // Initial Boot
+  state.gemmaChat.messages = loadGemmaChatHistory();
   setupGlobalListenersOnce();
   recalculateTimeline();
   saveState();

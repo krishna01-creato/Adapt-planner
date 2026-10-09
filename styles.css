@@ -2205,98 +2205,156 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ==========================================================================
-   Auto-Schedule Weekday Buttons (High Contrast & Clear Strike-Through)
+   Auto-Schedule Weekday Buttons (High Contrast, Clear Labels & Strike-Through)
    ========================================================================== */
 .brain-dump-days-row {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   justify-content: center;
   align-items: center;
-  margin: 14px 0 20px 0;
+  margin: 14px 0 18px 0;
   flex-wrap: wrap;
 }
 
 .day-circle-toggle {
   position: relative;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  width: 50px;
+  height: 56px;
+  padding: 6px 4px;
+  border-radius: 12px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
-  font-weight: 700;
+  gap: 2px;
   cursor: pointer;
   outline: none;
   transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
-  border: none;
+  border: 1.5px solid var(--border-card);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-heading);
 }
 
-/* ACTIVE STATE: High contrast white/amber text, golden glow, active border */
+.day-circle-toggle .day-letter {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+  z-index: 2;
+  transition: all 0.2s ease;
+}
+
+.day-circle-toggle .day-short-name {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  z-index: 2;
+  font-family: var(--font-mono);
+  transition: all 0.2s ease;
+}
+
+/* ACTIVE STATE (Default included) */
 .day-circle-toggle.day-active,
 .day-circle-toggle[data-active="true"] {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(245, 158, 11, 0.12));
-  color: #ffffff !important;
-  border: 1.5px solid rgba(245, 158, 11, 0.8) !important;
-  box-shadow: 0 0 14px rgba(245, 158, 11, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08));
+  border: 1.5px solid rgba(245, 158, 11, 0.75);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.15);
   opacity: 1;
   transform: scale(1);
 }
 
-.day-circle-toggle.day-active:hover,
-.day-circle-toggle[data-active="true"]:hover {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.4), rgba(245, 158, 11, 0.2));
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.45);
-  transform: translateY(-2px) scale(1.05);
+.day-circle-toggle.day-active .day-letter,
+.day-circle-toggle[data-active="true"] .day-letter {
+  color: #ffffff;
 }
 
-/* CROSSED-OUT / EXCLUDED STATE: Red strike-through, dashed border, clear visual feedback */
+.day-circle-toggle.day-active .day-short-name,
+.day-circle-toggle[data-active="true"] .day-short-name {
+  color: #fbbf24;
+}
+
+[data-theme='light'] .day-circle-toggle.day-active,
+[data-theme='light'] .day-circle-toggle[data-active="true"] {
+  background: #fffbeb;
+  border: 1.5px solid #d97706;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.15);
+}
+
+[data-theme='light'] .day-circle-toggle.day-active .day-letter,
+[data-theme='light'] .day-circle-toggle[data-active="true"] .day-letter {
+  color: #0f172a;
+}
+
+[data-theme='light'] .day-circle-toggle.day-active .day-short-name,
+[data-theme='light'] .day-circle-toggle[data-active="true"] .day-short-name {
+  color: #b45309;
+}
+
+/* HOVER ON ACTIVE */
+.day-circle-toggle.day-active:hover,
+.day-circle-toggle[data-active="true"]:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.35), rgba(245, 158, 11, 0.16));
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.35);
+  transform: translateY(-2px);
+}
+
+/* CROSSED-OUT / EXCLUDED STATE */
 .day-circle-toggle.day-crossed-out,
 .day-circle-toggle[data-active="false"] {
-  background: rgba(15, 23, 42, 0.75) !important;
-  color: #ef4444 !important;
-  border: 1.5px dashed rgba(239, 68, 68, 0.6) !important;
-  box-shadow: none !important;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1.5px dashed rgba(239, 68, 68, 0.5);
+  box-shadow: none;
   opacity: 0.55;
-  transform: scale(0.94);
+  transform: scale(0.96);
 }
 
 .day-circle-toggle.day-crossed-out .day-letter,
 .day-circle-toggle[data-active="false"] .day-letter {
+  color: #ef4444;
   text-decoration: line-through;
-  color: #ef4444 !important;
+}
+
+.day-circle-toggle.day-crossed-out .day-short-name,
+.day-circle-toggle[data-active="false"] .day-short-name {
+  color: #f87171;
+  text-decoration: line-through;
 }
 
 .day-circle-toggle.day-crossed-out::after,
 .day-circle-toggle[data-active="false"]::after {
   content: '';
   position: absolute;
-  width: 24px;
-  height: 2.5px;
+  width: 28px;
+  height: 2px;
   background: #ef4444;
-  transform: rotate(-45deg);
+  transform: rotate(-35deg);
   border-radius: 2px;
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+  pointer-events: none;
 }
 
 .day-circle-toggle.day-crossed-out:hover,
 .day-circle-toggle[data-active="false"]:hover {
   opacity: 0.85;
-  border-color: #ef4444 !important;
+  border-color: #ef4444;
   transform: scale(0.98);
 }
 
+/* TODAY BADGE / DOT */
 .day-circle-toggle.is-today {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.8), 0 0 14px rgba(245, 158, 11, 0.3) !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.8), 0 0 14px rgba(56, 189, 248, 0.25);
 }
 
-.day-today-dot {
+.day-circle-toggle .day-today-dot {
   position: absolute;
-  bottom: 3px;
-  width: 5px;
-  height: 5px;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #38bdf8;
   box-shadow: 0 0 6px #38bdf8;
@@ -3227,78 +3285,6 @@ h1, h2, h3, h4, h5, h6 {
 .text-secondary { color: var(--text-secondary); }
 .block { display: block; }
 .w-full { width: 100%; }
-
-/* Brain Dump Specific Component Classes */
-.brain-dump-days-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 12px;
-  margin-bottom: 24px;
-}
-
-.day-circle-toggle {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: var(--bg-card-hover);
-  border: 1px solid var(--border-card);
-  color: var(--text-muted);
-  font-family: var(--font-heading);
-  font-weight: 600;
-  font-size: 15px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
-.day-circle-toggle:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--border-subtle);
-  transform: translateY(-1px);
-}
-
-.day-circle-toggle.day-active {
-  background: #ffffff;
-  color: #070b14;
-  border-color: #ffffff;
-  opacity: 1;
-  text-decoration: none;
-  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.15);
-}
-
-.day-circle-toggle.day-active:hover {
-  background: #f0f0f0;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.25);
-}
-
-.day-circle-toggle.day-crossed-out {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px dashed var(--border-card);
-  opacity: 0.4;
-}
-
-.day-circle-toggle .day-letter {
-  z-index: 2;
-}
-
-.day-circle-toggle .day-today-dot {
-  position: absolute;
-  bottom: 6px;
-  width: 6px;
-  height: 6px;
-  background: var(--accent);
-  border-radius: 50%;
-  box-shadow: 0 0 4px var(--accent);
-}
 
 .label-title {
   display: block;

@@ -4075,8 +4075,15 @@
       `;
     } else if (name === 'brainDump') {
       title = '🧠 Auto-Schedule Week';
-      const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-      const dayFullNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const daysInfo = [
+        { letter: 'S', short: 'Sun', full: 'Sunday' },
+        { letter: 'M', short: 'Mon', full: 'Monday' },
+        { letter: 'T', short: 'Tue', full: 'Tuesday' },
+        { letter: 'W', short: 'Wed', full: 'Wednesday' },
+        { letter: 'T', short: 'Thu', full: 'Thursday' },
+        { letter: 'F', short: 'Fri', full: 'Friday' },
+        { letter: 'S', short: 'Sat', full: 'Saturday' },
+      ];
       const todayDay = new Date().getDay();
       
       body = `
@@ -4096,10 +4103,11 @@
             </div>
             <p class="text-xs text-secondary mb-3">Click any day to cross it out and exclude it from the schedule. Tasks will be distributed only across active days.</p>
             <div class="brain-dump-days-row">
-              ${dayLabels.map((l, i) => `
+              ${daysInfo.map((d, i) => `
                 <button type="button" class="day-circle-toggle day-active ${i === todayDay ? 'is-today' : ''}" 
-                  data-brain-day="${i}" data-active="true" title="${dayFullNames[i]} - Active (click to exclude)">
-                  <span class="day-letter">${l}</span>
+                  data-brain-day="${i}" data-active="true" title="${d.full} - Active (click to exclude)">
+                  <span class="day-letter">${d.letter}</span>
+                  <span class="day-short-name">${d.short}</span>
                   ${i === todayDay ? '<span class="day-today-dot" title="Today"></span>' : ''}
                 </button>
               `).join('')}

@@ -6492,6 +6492,15 @@ ${contextStr}`;
     scrollGemmaToBottom();
   }
 
+  function scrollGemmaToBottom() {
+    setTimeout(() => {
+      const container = document.getElementById('gemma-messages-container');
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }, 50);
+  }
+
   async function handleGemmaUserSend(userText) {
     const prompt = userText;
     if (!prompt) return;

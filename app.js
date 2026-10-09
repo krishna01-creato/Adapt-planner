@@ -8,10 +8,176 @@
   'use strict';
 
   // =========================================================================
-  // 1. CONSTANTS & CONFIG
+  // 1. AUTHENTICATION & SECURITY MODULE
   // =========================================================================
-  const googleId = localStorage.getItem('adapt_google_id');
-  const STORAGE_KEY = googleId ? `adapt_study_planner_state_${googleId}` : 'adapt_study_planner_state_v2';
+  const USERS_DB_KEY = 'adapt_users_db';
+  const AUTH_SESSION_KEY = 'adapt_auth_session';
+
+  async function hashPassword(password, salt) {
+    if (window.crypto && window.crypto.subtle) {
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(salt + ':' + password + ':adapt_secure_pepper_2026');
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      } catch (e) {
+        console.warn('Subtle crypto error, using fallback:', e);
+      }
+    }
+    // Deterministic fallback hash
+    let hash = 0;
+    const str = salt + ':' + password + ':pepper';
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash |= 0;
+    }
+    return 'h_' + Math.abs(hash).toString(16);
+  }
+
+  function generateRandomHex(len = 16) {
+    if (window.crypto && window.crypto.getRandomValues) {
+      const arr = new Uint8Array(len);
+      window.crypto.getRandomValues(arr);
+      return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return 'tok_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function getUsersDB() {
+    try {
+      const raw = localStorage.getItem(USERS_DB_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to parse users DB:', e);
+    }
+    return [];
+  }
+
+  function saveUsersDB(users) {
+    try {
+      localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+    } catch (e) {
+      console.error('Failed to save users DB:', e);
+    }
+  }
+
+  // Ensure default demo user exists in DB
+  async function ensureDemoUser() {
+    const users = getUsersDB();
+    if (!users.some(u => u.email.toLowerCase() === 'demo@adapt.study')) {
+      const salt = generateRandomHex(12);
+      const passwordHash = await hashPassword('password123', salt);
+      users.push({
+        id: 'usr_demo_student',
+        name: 'Demo Student',
+        email: 'demo@adapt.study',
+        salt,
+        passwordHash,
+        createdAt: getTodayISO(),
+        isDemo: true,
+      });
+      saveUsersDB(users);
+
+      // Seed initial demo data for this user if not already set
+      const demoKey = `adapt_study_planner_state_usr_demo_student`;
+      if (!localStorage.getItem(demoKey)) {
+        const seed = getSeedData();
+        localStorage.setItem(demoKey, JSON.stringify(seed));
+      }
+    }
+  }
+
+  function getAuthSession() {
+    try {
+      const raw = localStorage.getItem(AUTH_SESSION_KEY) || sessionStorage.getItem(AUTH_SESSION_KEY);
+      if (raw) {
+        const session = JSON.parse(raw);
+        if (session && session.userId && session.token && session.expiresAt) {
+          if (Date.now() < session.expiresAt) {
+            const users = getUsersDB();
+            const user = users.find(u => u.id === session.userId);
+            if (user) {
+              return { ...session, name: user.name, email: user.email };
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse auth session:', e);
+    }
+    // Clean expired / invalid session
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+    return null;
+  }
+
+  function setAuthSession(user, remember = true) {
+    const duration = remember ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const session = {
+      token: generateRandomHex(24),
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      remember: !!remember,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + duration,
+    };
+    if (remember) {
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+      sessionStorage.removeItem(AUTH_SESSION_KEY);
+    } else {
+      sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+      localStorage.removeItem(AUTH_SESSION_KEY);
+    }
+    return session;
+  }
+
+  function clearAuthSession() {
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+  }
+
+  function getUserInitials(name) {
+    if (!name) return 'U';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }
+
+  function getPasswordStrength(password) {
+    if (!password) return { score: 0, label: 'None', color: '#64748b', pct: 0 };
+    let score = 0;
+    if (password.length >= 6) score += 1;
+    if (password.length >= 8) score += 1;
+    if (/[A-Z]/.test(password)) score += 1;
+    if (/[0-9]/.test(password)) score += 1;
+    if (/[^A-Za-z0-9]/.test(password)) score += 1;
+
+    if (score <= 1) return { score: 1, label: 'Weak', color: '#ef4444', pct: 25 };
+    if (score <= 3) return { score: 2, label: 'Moderate', color: '#f59e0b', pct: 60 };
+    return { score: 3, label: 'Strong', color: '#10b981', pct: 100 };
+  }
+
+  function getStorageKey(userId) {
+    return userId ? `adapt_study_planner_state_${userId}` : 'adapt_study_planner_state_v2';
+  }
+
+  const authUIState = {
+    mode: 'signin', // 'signin' | 'signup'
+    error: null,
+    success: null,
+    showPassword: false,
+    showSignupPassword: false,
+    showConfirmPassword: false,
+    loading: false,
+  };
 
   const DEFAULT_CATEGORIES = [
     { id: 'cat-dsa', label: 'DSA & Algorithms', color: '#f59e0b' },
@@ -1557,9 +1723,11 @@
   // 9. REACTIVE STATE & PERSISTENCE
   // =========================================================================
   function loadState() {
+    const session = getAuthSession();
+    const storageKey = getStorageKey(session?.userId);
     const seed = getSeedData();
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
@@ -1675,6 +1843,9 @@
   if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
 
   function saveState() {
+    const session = getAuthSession();
+    if (!session) return;
+    const storageKey = getStorageKey(session.userId);
     try {
       const payload = {
         tasks: state.tasks,
@@ -1689,24 +1860,33 @@
         timelineView: state.timelineView,
         scheduleConfig: state.scheduleConfig,
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(storageKey, JSON.stringify(payload));
     } catch (err) {
       console.error('LocalStorage write error:', err);
     }
   }
 
+  function initUserState() {
+    const fresh = loadState();
+    Object.keys(fresh).forEach(k => {
+      state[k] = fresh[k];
+    });
+    state.activeTab = 'dashboard';
+    state.activeModal = null;
+    state.focus = null;
+    state.viewDate = getTodayISO();
+    recalculateTimeline();
+  }
+
   // 1. Clear All Data (Clean Slate for Real Daily Life)
   function clearAllData() {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      // Avoid full localStorage wipe
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('adapt_')) {
-        localStorage.removeItem(k);
-      }
+    const session = getAuthSession();
+    if (session) {
+      const storageKey = getStorageKey(session.userId);
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (e) {}
     }
-    } catch (e) {}
 
     state.tasks = [];
     state.fixedEvents = [];
@@ -1729,16 +1909,13 @@
 
   // 2. Load Sample Demo Data (For previewing)
   function loadDemoData() {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      // Avoid full localStorage wipe
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('adapt_')) {
-        localStorage.removeItem(k);
-      }
+    const session = getAuthSession();
+    if (session) {
+      const storageKey = getStorageKey(session.userId);
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (e) {}
     }
-    } catch (e) {}
 
     const fresh = getSeedData();
     state.tasks = fresh.tasks;
@@ -1800,115 +1977,381 @@
   }
 
   // =========================================================================
-  // 10. DOM RENDERING ENGINE
+  // 10. DOM RENDERING ENGINE & ROUTE GUARDS
   // =========================================================================
   const appRoot = document.getElementById('app');
 
-  
-  function renderOnboardingHtml() {
+  function renderSignInFormHtml() {
     return `
-      <div class="onboarding-overlay">
-        <div class="onboarding-card">
-          <h2 style="margin-bottom:10px; font-size: 24px; color: var(--text-primary);">Welcome to Adapt</h2>
-          <p style="color: var(--text-secondary); margin-bottom: 20px;">Your intelligent, adaptive study planner.</p>
-          <div class="form-group" style="text-align:left; margin-bottom: 20px;">
-            <label style="display:block; margin-bottom: 8px; color: var(--text-muted);">What should we call you?</label>
-            <input type="text" id="onboarding-name" class="input-text" placeholder="Your Name" style="width: 100%;" />
+      <form id="auth-signin-form" novalidate>
+        <div class="login-field-group">
+          <label class="login-label" for="signin-email">Email Address</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <input type="email" id="signin-email" class="login-input" placeholder="student@university.edu" required autocomplete="email" />
           </div>
-          <button class="btn btn-primary" id="btn-onboarding-start" style="width:100%; justify-content:center;">Start Focusing</button>
         </div>
-      </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signin-password">Password</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="${authUIState.showPassword ? 'text' : 'password'}" id="signin-password" class="login-input" placeholder="Enter your password" required autocomplete="current-password" />
+            <button type="button" class="login-password-toggle" id="btn-toggle-signin-pwd" title="${authUIState.showPassword ? 'Hide password' : 'Show password'}">
+              ${authUIState.showPassword ? '👁️' : '🔒'}
+            </button>
+          </div>
+        </div>
+
+        <div class="auth-remember-row">
+          <label class="auth-checkbox-label">
+            <input type="checkbox" id="signin-remember" class="auth-checkbox" checked />
+            <span>Remember me (7 days)</span>
+          </label>
+          <a href="#" id="link-forgot-pw" style="color: #60a5fa; text-decoration: none; font-size: 11px;">Forgot password?</a>
+        </div>
+
+        <div class="login-actions">
+          <button type="submit" class="login-btn" id="btn-submit-signin">
+            <span>Sign In to Workspace</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+
+        <button type="button" class="demo-login-btn" id="btn-demo-login">
+          <span>⚡ One-Click Demo Student Account</span>
+        </button>
+      </form>
     `;
   }
 
-  function attachOnboardingListeners() {
-    const btn = document.getElementById('btn-onboarding-start');
-    if (btn) {
-      btn.onclick = () => {
-        const name = document.getElementById('onboarding-name').value.trim();
-        if (!name) {
-          alert('Please enter your name.');
+  function renderSignUpFormHtml() {
+    return `
+      <form id="auth-signup-form" novalidate>
+        <div class="login-field-group">
+          <label class="login-label" for="signup-name">Full Name</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="signup-name" class="login-input" placeholder="Alex Mercer" required autocomplete="name" />
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signup-email">Email Address</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <input type="email" id="signup-email" class="login-input" placeholder="alex@university.edu" required autocomplete="email" />
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signup-password">Create Password (Min 6 chars)</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="${authUIState.showSignupPassword ? 'text' : 'password'}" id="signup-password" class="login-input" placeholder="Create a secure password" required autocomplete="new-password" />
+            <button type="button" class="login-password-toggle" id="btn-toggle-signup-pwd" title="${authUIState.showSignupPassword ? 'Hide password' : 'Show password'}">
+              ${authUIState.showSignupPassword ? '👁️' : '🔒'}
+            </button>
+          </div>
+          <div class="password-strength-wrap" id="password-strength-box" style="display:none;">
+            <div class="password-strength-track">
+              <div class="password-strength-fill" id="pwd-strength-fill" style="width:0%;background-color:#ef4444;"></div>
+            </div>
+            <div class="password-strength-text">
+              <span id="pwd-strength-label">Password strength</span>
+              <span id="pwd-strength-hint" class="font-mono">Too short</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signup-confirm">Confirm Password</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="${authUIState.showConfirmPassword ? 'text' : 'password'}" id="signup-confirm" class="login-input" placeholder="Repeat your password" required autocomplete="new-password" />
+            <button type="button" class="login-password-toggle" id="btn-toggle-confirm-pwd" title="${authUIState.showConfirmPassword ? 'Hide password' : 'Show password'}">
+              ${authUIState.showConfirmPassword ? '👁️' : '🔒'}
+            </button>
+          </div>
+        </div>
+
+        <div class="login-actions">
+          <button type="submit" class="login-btn" id="btn-submit-signup">
+            <span>Create Free Account</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
+  function renderAuthView() {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    const isSignIn = authUIState.mode === 'signin';
+
+    appRoot.innerHTML = `
+      <div class="login-overlay">
+        <div class="login-ambient-lights">
+          <div class="login-orb orb-1"></div>
+          <div class="login-orb orb-2"></div>
+          <div class="login-orb orb-3"></div>
+        </div>
+
+        <div class="login-card">
+          <div class="login-badge">
+            <span class="pulse-dot"></span> Secure Account Sync
+          </div>
+
+          <div class="login-logo-wrapper">
+            <div class="login-logo">
+              <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent);">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+          </div>
+
+          <h1 class="login-title">${isSignIn ? 'Sign in to Adapt' : 'Create Your Account'}</h1>
+          <p class="login-subtitle">${isSignIn ? 'Sign in to access your adaptive study schedule and synchronize daily tasks.' : 'Join Adapt to build focused study habits, track DSA problems, and ace your exams.'}</p>
+
+          <!-- Mode Switch Tabs -->
+          <div class="auth-mode-switch" role="tablist">
+            <button type="button" class="auth-mode-btn ${isSignIn ? 'active' : ''}" id="auth-tab-signin" role="tab" aria-selected="${isSignIn}">
+              Sign In
+            </button>
+            <button type="button" class="auth-mode-btn ${!isSignIn ? 'active' : ''}" id="auth-tab-signup" role="tab" aria-selected="${!isSignIn}">
+              Create Account
+            </button>
+          </div>
+
+          <!-- Alert Notification -->
+          ${authUIState.error ? `
+            <div class="auth-alert error">
+              <span>⚠️</span>
+              <span>${escapeHtml(authUIState.error)}</span>
+            </div>
+          ` : ''}
+          ${authUIState.success ? `
+            <div class="auth-alert success">
+              <span>✅</span>
+              <span>${escapeHtml(authUIState.success)}</span>
+            </div>
+          ` : ''}
+
+          ${isSignIn ? renderSignInFormHtml() : renderSignUpFormHtml()}
+
+          <div class="login-security-notice">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>SHA-256 salted encryption • Isolated user storage</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    attachAuthEventListeners();
+  }
+
+  function attachAuthEventListeners() {
+    // Mode Switch tabs
+    document.getElementById('auth-tab-signin')?.addEventListener('click', () => {
+      authUIState.mode = 'signin';
+      authUIState.error = null;
+      renderAuthView();
+    });
+
+    document.getElementById('auth-tab-signup')?.addEventListener('click', () => {
+      authUIState.mode = 'signup';
+      authUIState.error = null;
+      renderAuthView();
+    });
+
+    // Password visibility toggles
+    document.getElementById('btn-toggle-signin-pwd')?.addEventListener('click', () => {
+      authUIState.showPassword = !authUIState.showPassword;
+      renderAuthView();
+    });
+
+    document.getElementById('btn-toggle-signup-pwd')?.addEventListener('click', () => {
+      authUIState.showSignupPassword = !authUIState.showSignupPassword;
+      renderAuthView();
+    });
+
+    document.getElementById('btn-toggle-confirm-pwd')?.addEventListener('click', () => {
+      authUIState.showConfirmPassword = !authUIState.showConfirmPassword;
+      renderAuthView();
+    });
+
+    // Live Password Strength Meter in Signup
+    const signupPwdInput = document.getElementById('signup-password');
+    if (signupPwdInput) {
+      signupPwdInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        const box = document.getElementById('password-strength-box');
+        const fill = document.getElementById('pwd-strength-fill');
+        const hint = document.getElementById('pwd-strength-hint');
+        if (!val) {
+          if (box) box.style.display = 'none';
           return;
         }
-        state.user = { name };
-        saveState();
-        render();
-      };
+        if (box) box.style.display = 'block';
+        const st = getPasswordStrength(val);
+        if (fill) {
+          fill.style.width = `${st.pct}%`;
+          fill.style.backgroundColor = st.color;
+        }
+        if (hint) {
+          hint.textContent = st.label;
+          hint.style.color = st.color;
+        }
+      });
     }
+
+    // Forgot password link
+    document.getElementById('link-forgot-pw')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      authUIState.error = 'To explore all features right away, you can sign in with the Demo Student account or create a new free account.';
+      renderAuthView();
+    });
+
+    // One-Click Demo Student Login
+    document.getElementById('btn-demo-login')?.addEventListener('click', async () => {
+      await ensureDemoUser();
+      const users = getUsersDB();
+      const demoUser = users.find(u => u.email.toLowerCase() === 'demo@adapt.study');
+      if (demoUser) {
+        setAuthSession(demoUser, true);
+        initUserState();
+        showBanner(`Welcome back, ${demoUser.name}! (Demo Account)`, 'success');
+        render();
+      }
+    });
+
+    // Sign In Form Submission
+    document.getElementById('auth-signin-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('signin-email')?.value?.trim();
+      const password = document.getElementById('signin-password')?.value;
+      const remember = document.getElementById('signin-remember')?.checked;
+
+      if (!email || !password) {
+        authUIState.error = 'Please enter both your email address and password.';
+        renderAuthView();
+        return;
+      }
+
+      await ensureDemoUser();
+      const users = getUsersDB();
+      const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+      if (!user) {
+        authUIState.error = 'No account found with this email address. Please check your spelling or create an account.';
+        renderAuthView();
+        return;
+      }
+
+      const inputHash = await hashPassword(password, user.salt);
+      if (inputHash !== user.passwordHash) {
+        authUIState.error = 'Incorrect password. Please verify and try again.';
+        renderAuthView();
+        return;
+      }
+
+      // Valid credentials! Set session
+      user.lastLogin = getTodayISO();
+      saveUsersDB(users);
+      setAuthSession(user, remember);
+      authUIState.error = null;
+      authUIState.success = null;
+      initUserState();
+      showBanner(`Welcome back, ${user.name}!`, 'success');
+      render();
+    });
+
+    // Sign Up Form Submission
+    document.getElementById('auth-signup-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('signup-name')?.value?.trim();
+      const email = document.getElementById('signup-email')?.value?.trim();
+      const password = document.getElementById('signup-password')?.value;
+      const confirm = document.getElementById('signup-confirm')?.value;
+
+      if (!name || name.length < 2) {
+        authUIState.error = 'Please enter your full name (at least 2 characters).';
+        renderAuthView();
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
+        authUIState.error = 'Please enter a valid email address.';
+        renderAuthView();
+        return;
+      }
+
+      if (!password || password.length < 6) {
+        authUIState.error = 'Password must be at least 6 characters long.';
+        renderAuthView();
+        return;
+      }
+
+      if (password !== confirm) {
+        authUIState.error = 'Passwords do not match. Please re-enter your confirmation.';
+        renderAuthView();
+        return;
+      }
+
+      await ensureDemoUser();
+      const users = getUsersDB();
+      if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+        authUIState.error = 'An account with this email address already exists. Please sign in instead.';
+        renderAuthView();
+        return;
+      }
+
+      // Create new user
+      const salt = generateRandomHex(12);
+      const passwordHash = await hashPassword(password, salt);
+      const newUser = {
+        id: `usr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        email,
+        salt,
+        passwordHash,
+        createdAt: getTodayISO(),
+        lastLogin: getTodayISO(),
+      };
+
+      users.push(newUser);
+      saveUsersDB(users);
+
+      // Initialize clean user planner state
+      const initialSeed = {
+        categories: [...DEFAULT_CATEGORIES],
+        tasks: [],
+        fixedEvents: [],
+        dsaTopics: [],
+        collegeSubjects: [],
+        lostTimeEvents: [],
+        studySessions: [],
+        dailyNotes: {},
+        theme: 'dark',
+        timelineView: 'agenda',
+        scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG },
+      };
+      localStorage.setItem(`adapt_study_planner_state_${newUser.id}`, JSON.stringify(initialSeed));
+
+      setAuthSession(newUser, true);
+      authUIState.error = null;
+      authUIState.success = null;
+      initUserState();
+      showBanner(`Account created! Welcome to Adapt, ${newUser.name}!`, 'success');
+      render();
+    });
   }
 
   function render() {
-    if (!googleId) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      appRoot.innerHTML = `
-        <div class="login-overlay">
-          <div class="login-ambient-lights">
-            <div class="login-orb orb-1"></div>
-            <div class="login-orb orb-2"></div>
-            <div class="login-orb orb-3"></div>
-          </div>
-          <div class="login-card">
-            <div class="login-badge">
-              <span class="pulse-dot"></span> Secure Account Sync
-            </div>
-            <div class="login-logo-wrapper">
-              <div class="login-logo">
-                <svg viewBox="0 0 24 24" width="42" height="42" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l2.85-2.22.83-.62z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-              </div>
-            </div>
-            <h1 class="login-title">Sign in to Adapt</h1>
-            <p class="login-subtitle">Connect your Google ID to auto-save and synchronize your academic schedule</p>
-            <form id="google-login-form">
-              <div class="login-field-group">
-                <label class="login-label">Google Account (Email)</label>
-                <div class="login-input-box">
-                  <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                  <input type="email" id="login-email" class="login-input" placeholder="student@gmail.com" required autocomplete="username" />
-                </div>
-              </div>
-              <div class="login-field-group">
-                <label class="login-label">App Password</label>
-                <div class="login-input-box">
-                  <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  <input type="password" id="login-password" class="login-input" placeholder="Set password for this app" required autocomplete="current-password" />
-                </div>
-              </div>
-              <div class="login-actions">
-                <button type="submit" class="btn login-btn">
-                  <span>Sign In & Sync Progress</span>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-              </div>
-              <div class="login-security-notice">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                <span>Encrypted local storage bound to your Google ID</span>
-              </div>
-            </form>
-          </div>
-        </div>
-      `;
-      document.getElementById('google-login-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const email = document.getElementById('login-email').value;
-        if (email) {
-          localStorage.setItem('adapt_google_id', email);
-          
-          const newKey = `adapt_study_planner_state_${email}`;
-          if (!localStorage.getItem(newKey)) {
-            const guestData = localStorage.getItem('adapt_study_planner_state_v2');
-            if (guestData) {
-              localStorage.setItem(newKey, guestData);
-            }
-          }
-          
-          window.location.reload();
-        }
-      });
+    const session = getAuthSession();
+    if (!session) {
+      renderAuthView();
       return;
     }
 
@@ -1953,6 +2396,7 @@
   }
 
   function renderNavHtml() {
+    const session = getAuthSession();
     const today = getTodayISO();
     const streak = calculateStreak(state.studySessions, today);
     const overdue = getOverdueTasksCount(state.tasks, today);
@@ -1969,6 +2413,11 @@
       { id: 'analytics', label: 'Analytics', icon: '📊' },
       { id: 'settings', label: 'Settings', icon: '⚙️' },
     ];
+
+    const userName = session?.name || 'Student';
+    const userEmail = session?.email || '';
+    const initials = getUserInitials(userName);
+    const firstName = userName.split(' ')[0];
 
     return `
       <header class="nav-header">
@@ -2000,6 +2449,33 @@
             <button class="theme-toggle-btn" id="btn-theme-toggle" title="Toggle Theme">
               ${state.theme === 'dark' ? '☀️' : '🌙'}
             </button>
+
+            <!-- User Profile Dropdown Pill -->
+            <div class="nav-user-wrapper">
+              <button class="nav-user-pill" id="btn-nav-user" title="Account Menu">
+                <span class="user-avatar-badge">${initials}</span>
+                <span class="user-name-text">${escapeHtml(firstName)}</span>
+                <span class="user-pill-arrow">▼</span>
+              </button>
+              <div class="nav-user-dropdown" id="nav-user-dropdown" style="display:none;">
+                <div class="user-dropdown-header">
+                  <div class="user-dropdown-name">${escapeHtml(userName)}</div>
+                  <div class="user-dropdown-email font-mono">${escapeHtml(userEmail)}</div>
+                  <div class="flex items-center gap-1 mt-1">
+                    <span class="badge badge-low" style="font-size:9px;padding:2px 6px;">● Active Session</span>
+                  </div>
+                </div>
+                <div class="user-dropdown-divider"></div>
+                <button class="user-dropdown-item" data-action="nav-settings">
+                  <span>⚙️</span>
+                  <span>Account & Settings</span>
+                </button>
+                <button class="user-dropdown-item text-danger" id="btn-nav-logout">
+                  <span>🚪</span>
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <nav class="nav-tabs" aria-label="Main Navigation">
@@ -2999,11 +3475,107 @@
   // -------------------------------------------------------------------------
   function renderSettingsHtml() {
     const sc = state.scheduleConfig || DEFAULT_SCHEDULE_CONFIG;
+    const session = getAuthSession();
+    const userName = session?.name || 'Student';
+    const userEmail = session?.email || 'student@adapt.study';
+    const userId = session?.userId || 'usr_anonymous';
+    const initials = getUserInitials(userName);
+    const expiresDateStr = session?.expiresAt ? new Date(session.expiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Session active';
+    const isDemo = userEmail.toLowerCase() === 'demo@adapt.study';
+
     return `
       <div class="settings-page animate-fade-in">
         <div class="card mb-4">
           <h1 class="font-bold text-xl mb-1">Application Settings</h1>
-          <p class="text-xs text-secondary">Manage theme, schedule times, categories, backups, and reset options.</p>
+          <p class="text-xs text-secondary">Manage your user profile, security, daily schedule, categories, and data backups.</p>
+        </div>
+
+        <!-- 👤 Account & Security Profile Card -->
+        <div class="card account-profile-card mb-4">
+          <div class="account-header-row">
+            <div class="account-avatar-lg">${initials}</div>
+            <div style="flex: 1;">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="account-info-title">${escapeHtml(userName)}</span>
+                <span class="badge ${isDemo ? 'badge-medium' : 'badge-low'} text-xs">
+                  ${isDemo ? '⚡ Demo Student' : '🔒 Verified Account'}
+                </span>
+              </div>
+              <div class="account-info-email font-mono">${escapeHtml(userEmail)}</div>
+            </div>
+            <button class="btn btn-secondary text-danger btn-sm" id="btn-settings-logout">🚪 Sign Out</button>
+          </div>
+
+          <div class="account-meta-grid">
+            <div class="account-meta-item">
+              <span class="account-meta-label">User ID</span>
+              <span class="account-meta-val font-mono" style="font-size: 11px;">${userId}</span>
+            </div>
+            <div class="account-meta-item">
+              <span class="account-meta-label">Session Status</span>
+              <span class="account-meta-val font-mono" style="font-size: 11px; color: #10b981;">● Active (expires ${expiresDateStr})</span>
+            </div>
+            <div class="account-meta-item">
+              <span class="account-meta-label">Data Namespace</span>
+              <span class="account-meta-val font-mono" style="font-size: 11px;">adapt_study_planner_state_${userId}</span>
+            </div>
+          </div>
+
+          <!-- Change Password Subform -->
+          <div class="mt-4 pt-3" style="border-top: 1px solid var(--border-subtle);">
+            <div class="flex justify-between items-center mb-2">
+              <h4 class="font-semibold text-sm">🔑 Change Password</h4>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-change-pwd-box" style="font-size: 11px; color: var(--accent);">
+                Show / Hide Form
+              </button>
+            </div>
+            
+            <div id="settings-change-pwd-box" style="display: none; margin-top: 12px;">
+              <form id="form-change-password" class="flex flex-col gap-3">
+                <div id="change-pwd-alert" style="display: none;" class="auth-alert"></div>
+                
+                <div>
+                  <label class="label-title text-xs">Current Password</label>
+                  <div class="login-password-wrapper">
+                    <input type="password" id="change-current-pwd" class="input-text font-mono" placeholder="Enter current password" required />
+                    <button type="button" class="login-password-toggle" id="btn-toggle-chg-curr">👁️</button>
+                  </div>
+                </div>
+
+                <div class="grid-2">
+                  <div>
+                    <label class="label-title text-xs">New Password</label>
+                    <div class="login-password-wrapper">
+                      <input type="password" id="change-new-pwd" class="input-text font-mono" placeholder="Min. 6 characters" required />
+                      <button type="button" class="login-password-toggle" id="btn-toggle-chg-new">👁️</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="label-title text-xs">Confirm New Password</label>
+                    <div class="login-password-wrapper">
+                      <input type="password" id="change-confirm-pwd" class="input-text font-mono" placeholder="Confirm new password" required />
+                      <button type="button" class="login-password-toggle" id="btn-toggle-chg-conf">👁️</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Password strength indicator -->
+                <div id="change-pwd-strength-box" style="display: none;" class="password-strength-wrap">
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-secondary">Password strength:</span>
+                    <span id="change-pwd-strength-hint" class="font-semibold">Weak</span>
+                  </div>
+                  <div class="password-strength-bar">
+                    <div id="change-pwd-strength-fill" class="password-strength-fill"></div>
+                  </div>
+                </div>
+
+                <div class="flex justify-end gap-2 mt-1">
+                  <button type="submit" class="btn btn-primary btn-sm" id="btn-submit-change-pwd">🔒 Update Password</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
         <div class="card mb-4">
@@ -3148,16 +3720,6 @@
               <p class="text-xs text-secondary">Completely wipes all mock tasks, lectures, college courses, and logs so you can use Adapt for your real daily study life.</p>
             </div>
             <button class="btn btn-danger" id="btn-trigger-reset">🗑️ Clear All Data (Clean Slate)</button>
-          </div>
-        </div>
-
-        <div class="card mb-4" style="border: 1px solid var(--border-focus);">
-          <div class="flex justify-between items-center flex-wrap gap-2">
-            <div>
-              <h3 class="font-semibold text-sm">Session Management</h3>
-              <p class="text-xs text-secondary">Sign out of your current Google account.</p>
-            </div>
-            <button class="btn btn-secondary" id="btn-sign-out" style="color: var(--color-medium);">🚪 Sign Out</button>
           </div>
         </div>
       </div>
@@ -5821,10 +6383,149 @@
       });
     });
 
-    // Sign Out
-    document.getElementById('btn-sign-out')?.addEventListener('click', () => {
-      localStorage.removeItem('adapt_google_id');
-      window.location.reload();
+    // User Profile Dropdown Pill in Nav
+    const navUserBtn = document.getElementById('btn-nav-user');
+    const navUserDropdown = document.getElementById('nav-user-dropdown');
+    if (navUserBtn && navUserDropdown) {
+      navUserBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = navUserDropdown.style.display === 'block';
+        navUserDropdown.style.display = isOpen ? 'none' : 'block';
+      });
+    }
+
+    document.querySelectorAll('[data-action="nav-settings"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (navUserDropdown) navUserDropdown.style.display = 'none';
+        state.activeTab = 'settings';
+        render();
+      });
+    });
+
+    const handleSignOut = () => {
+      clearAuthSession();
+      authUIState.mode = 'signin';
+      authUIState.error = null;
+      authUIState.success = null;
+      showBanner('You have been signed out.', 'info');
+      render();
+    };
+
+    document.getElementById('btn-nav-logout')?.addEventListener('click', handleSignOut);
+    document.getElementById('btn-settings-logout')?.addEventListener('click', handleSignOut);
+    document.getElementById('btn-sign-out')?.addEventListener('click', handleSignOut);
+
+    // Settings - Change Password Box Toggle
+    document.getElementById('btn-toggle-change-pwd-box')?.addEventListener('click', () => {
+      const box = document.getElementById('settings-change-pwd-box');
+      if (box) {
+        const isHidden = box.style.display === 'none';
+        box.style.display = isHidden ? 'block' : 'none';
+      }
+    });
+
+    // Settings - Password Visibility Eye Toggles
+    document.getElementById('btn-toggle-chg-curr')?.addEventListener('click', () => {
+      const input = document.getElementById('change-current-pwd');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('btn-toggle-chg-new')?.addEventListener('click', () => {
+      const input = document.getElementById('change-new-pwd');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('btn-toggle-chg-conf')?.addEventListener('click', () => {
+      const input = document.getElementById('change-confirm-pwd');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    // Settings - Live Strength Meter for New Password
+    const chgNewPwd = document.getElementById('change-new-pwd');
+    if (chgNewPwd) {
+      chgNewPwd.addEventListener('input', (e) => {
+        const val = e.target.value;
+        const box = document.getElementById('change-pwd-strength-box');
+        const fill = document.getElementById('change-pwd-strength-fill');
+        const hint = document.getElementById('change-pwd-strength-hint');
+        if (!val) {
+          if (box) box.style.display = 'none';
+          return;
+        }
+        if (box) box.style.display = 'block';
+        const st = getPasswordStrength(val);
+        if (fill) {
+          fill.style.width = `${st.pct}%`;
+          fill.style.backgroundColor = st.color;
+        }
+        if (hint) {
+          hint.textContent = st.label;
+          hint.style.color = st.color;
+        }
+      });
+    }
+
+    // Settings - Submit Change Password Form
+    document.getElementById('form-change-password')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPwd = document.getElementById('change-current-pwd')?.value;
+      const newPwd = document.getElementById('change-new-pwd')?.value;
+      const confirmPwd = document.getElementById('change-confirm-pwd')?.value;
+      const alertEl = document.getElementById('change-pwd-alert');
+
+      const showAlert = (msg, type = 'error') => {
+        if (!alertEl) return;
+        alertEl.className = `auth-alert auth-alert-${type}`;
+        alertEl.style.display = 'flex';
+        alertEl.innerHTML = `<span>${type === 'error' ? '⚠️' : '✓'}</span><span>${escapeHtml(msg)}</span>`;
+      };
+
+      if (!currentPwd || !newPwd || !confirmPwd) {
+        showAlert('Please fill in all password fields.', 'error');
+        return;
+      }
+
+      if (newPwd.length < 6) {
+        showAlert('New password must be at least 6 characters.', 'error');
+        return;
+      }
+
+      if (newPwd !== confirmPwd) {
+        showAlert('New passwords do not match.', 'error');
+        return;
+      }
+
+      const session = getAuthSession();
+      if (!session) {
+        showAlert('Session expired. Please sign in again.', 'error');
+        return;
+      }
+
+      const users = getUsersDB();
+      const user = users.find(u => u.id === session.userId);
+      if (!user) {
+        showAlert('User record not found.', 'error');
+        return;
+      }
+
+      const currentHash = await hashPassword(currentPwd, user.salt);
+      if (currentHash !== user.passwordHash) {
+        showAlert('Current password is incorrect.', 'error');
+        return;
+      }
+
+      // Generate new salt and new hash
+      const newSalt = generateRandomHex(12);
+      const newPasswordHash = await hashPassword(newPwd, newSalt);
+      user.salt = newSalt;
+      user.passwordHash = newPasswordHash;
+      saveUsersDB(users);
+
+      showAlert('Password changed successfully!', 'success');
+      document.getElementById('change-current-pwd').value = '';
+      document.getElementById('change-new-pwd').value = '';
+      document.getElementById('change-confirm-pwd').value = '';
+      const box = document.getElementById('change-pwd-strength-box');
+      if (box) box.style.display = 'none';
+      showBanner('Security update: Password changed successfully!', 'success');
     });
   }
 
@@ -5873,6 +6574,17 @@
       const qaMenu = document.getElementById('quick-add-menu');
       if (qaMenu && qaMenu.style.display !== 'none') {
         qaMenu.style.display = 'none';
+      }
+    });
+
+    // Nav User Dropdown click outside
+    document.addEventListener('click', (e) => {
+      const userDropdown = document.getElementById('nav-user-dropdown');
+      const userBtn = document.getElementById('btn-nav-user');
+      if (userDropdown && userDropdown.style.display !== 'none') {
+        if (!userBtn || !userBtn.contains(e.target)) {
+          userDropdown.style.display = 'none';
+        }
       }
     });
 

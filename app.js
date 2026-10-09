@@ -5932,15 +5932,14 @@
         id: 'gemma-welcome',
         role: 'assistant',
         text: `### ✦ Welcome to Adapt AI
-Your supportive companion powered by **Gemma 4**.
+Your supportive study companion.
 
-Here is how I can help you today:
-- 💭 **Feeling overwhelmed or stuck?** Talk through what is heavy, and we will find a calm next step.
-- 🧭 **Where are you lagging?** Ask for a live progress diagnosis across your tasks and exams.
-- ⚡ **Daily structure:** Tell me what you need to achieve, and we'll craft a realistic, balanced routine.
-- 📷 **Visual reasoning:** Paste or attach photos of notes, syllabus, or errors for instant breakdown.
+I can help you:
+- 💭 **Decompress** when you feel stressed or overwhelmed.
+- 🧭 **Diagnose** your planner to see where you are lagging.
+- ⚡ **Break down** big goals into simple, realistic steps.
 
-*What would help you most right now?*`,
+*What's on your mind right now?*`,
         timestamp: Date.now(),
       },
     ];
@@ -6045,7 +6044,7 @@ Here is how I can help you today:
 `.trim();
   }
 
-  function generateLocalHeuristicResponse(userPrompt, attachedImage, noticePrefix = '') {
+  function generateLocalHeuristicResponse(userPrompt, noticePrefix = '') {
     const p = (userPrompt || '').toLowerCase();
     const userName = state.user?.name || 'Friend';
     const today = getTodayISO();
@@ -6054,16 +6053,6 @@ Here is how I can help you today:
     const totalLost = state.lostTimeEvents.reduce((acc, ev) => acc + (Number(ev.minutes) || 0), 0);
 
     let prefix = noticePrefix ? `*${noticePrefix}*\n\n` : '';
-
-    if (attachedImage) {
-      return prefix + `### 📷 Image Received: "${escapeHtml(attachedImage.name || 'Uploaded Asset')}"
-
-- **File:** ${escapeHtml(attachedImage.name || 'Image')} (${Math.round((attachedImage.base64?.length || 0) * 0.75 / 1024)} KB)
-- **Question:** "${escapeHtml(userPrompt)}"
-- **Live Multimodal Mode:** To activate cloud visual reasoning via Google's multimodal Gemma 4 model, click the **⚙️ Settings** icon in the header and paste your Google AI Studio API key!
-
-Feel free to describe the core question or problem in text, and we can solve it together right now!`;
-    }
 
     if (p.includes('overwhelm') || p.includes('stress') || p.includes('anxious') || p.includes('tired') || p.includes('burnout') || p.includes('can\'t focus') || p.includes('procrastinat')) {
       return prefix + `### 💭 Let's Take a Breath, ${userName}
@@ -6154,7 +6143,7 @@ Here are a few ways we can approach this:
 What aspect feels most urgent to you right now?`;
   }
 
-  async function requestGemmaAIResponse(userPrompt, attachedImage) {
+  async function requestGemmaAIResponse(userPrompt) {
     const apiKey = state.gemmaChat.apiKey?.trim();
     const model = state.gemmaChat.model || 'gemini-2.5-flash';
     const includeContext = state.gemmaChat.includeContext !== false;
@@ -6176,15 +6165,6 @@ ${contextStr}`;
         const userParts = [];
         userParts.push({ text: `${systemPrompt}\n\nUser Message:\n${userPrompt}` });
 
-        if (attachedImage && attachedImage.base64) {
-          userParts.push({
-            inlineData: {
-              mimeType: attachedImage.mimeType || 'image/jpeg',
-              data: attachedImage.base64,
-            },
-          });
-        }
-
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6201,7 +6181,7 @@ ${contextStr}`;
         if (!res.ok) {
           const errText = await res.text();
           console.warn('Gemma API HTTP error:', res.status, errText);
-          return generateLocalHeuristicResponse(userPrompt, attachedImage, `(Google API returned status ${res.status}. Switched to local offline intelligence)`);
+          return generateLocalHeuristicResponse(userPrompt, `(Google API returned status ${res.status}. Switched to local offline intelligence)`);
         }
 
         const json = await res.json();
@@ -6211,11 +6191,11 @@ ${contextStr}`;
         }
       } catch (apiErr) {
         console.warn('Gemma API fetch failed:', apiErr);
-        return generateLocalHeuristicResponse(userPrompt, attachedImage, '(Live API unreachable. Using local companion intelligence)');
+        return generateLocalHeuristicResponse(userPrompt, '(Live API unreachable. Using local companion intelligence)');
       }
     }
 
-    return generateLocalHeuristicResponse(userPrompt, attachedImage);
+    return generateLocalHeuristicResponse(userPrompt);
   }
 
   function renderGemmaFabHtml() {
@@ -6322,56 +6302,23 @@ ${contextStr}`;
               <div class="gemma-msg-row ${m.role === 'user' ? 'user' : 'ai'}">
                 <div class="gemma-msg-avatar">${m.role === 'user' ? '👤' : '✦'}</div>
                 <div class="gemma-msg-bubble">
-                  ${m.image ? `
-                    <div class="gemma-msg-img-box">
-                      <img src="${m.image}" alt="Attached snippet" />
-                    </div>
-                  ` : ''}
                   <div>${m.role === 'user' ? escapeHtml(m.text).replace(/\n/g, '<br/>') : formatGemmaMarkdown(m.text)}</div>
                 </div>
               </div>
             `).join('')}
-
-            ${isGenerating ? `
-              <div class="gemma-msg-row ai">
-                <div class="gemma-msg-avatar">✦</div>
-                <div class="gemma-msg-bubble">
-                  <span class="pulse-dot" style="display:inline-block;margin-right:6px;"></span>
-                  <em>Gemma 4 is reflecting on your question...</em>
-                </div>
-              </div>
-            ` : ''}
           </div>
 
           <!-- Input Area (Unified sleek card) -->
           <div class="gemma-modal-input-area">
-            ${attachedImage ? `
-              <div class="gemma-attach-preview-bar">
-                <img src="${attachedImage.dataUrl}" class="gemma-attach-thumb" alt="Preview" />
-                <div class="gemma-attach-meta">
-                  <span class="gemma-attach-name">📷 ${escapeHtml(attachedImage.name)}</span>
-                  <span class="gemma-attach-sub">Attached for visual reasoning</span>
-                </div>
-                <button type="button" class="gemma-attach-remove-btn" id="btn-gemma-remove-attach" title="Remove attachment">✕</button>
-              </div>
-            ` : ''}
-
             <div class="gemma-input-box">
-              <input type="file" id="gemma-file-input" accept="image/*" style="display:none;" />
-              <button type="button" class="gemma-attach-trigger-btn" id="btn-gemma-trigger-attach" title="Attach photo of notes, errors, or slides">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                </svg>
-              </button>
-              
               <textarea 
                 class="gemma-input-textarea" 
                 id="gemma-input-text" 
-                placeholder="Ask anything, share a challenge, or paste an image... (Enter to send)" 
+                placeholder="Ask for advice, report your progress... (Enter to send)" 
                 rows="1"
               ></textarea>
 
-              <button type="button" class="gemma-send-submit-btn" id="btn-gemma-send" ${isGenerating ? 'disabled' : ''} title="Send message">
+              <button type="button" class="gemma-send-submit-btn" id="btn-gemma-send" title="Send message">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="22" y1="2" x2="11" y2="13"></line>
                   <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -6380,7 +6327,7 @@ ${contextStr}`;
             </div>
 
             <div class="gemma-footer-hint">
-              <span>Press <strong>Enter</strong> to send • <strong>Shift+Enter</strong> for newline • Paste screenshots directly (Ctrl+V)</span>
+              <span>Press <strong>Enter</strong> to send • <strong>Shift+Enter</strong> for newline</span>
             </div>
           </div>
         </div>
@@ -6483,48 +6430,35 @@ ${contextStr}`;
     });
 
     // Quick Chips in Modal
+    function attachTaskListeners() {
+      document.querySelectorAll('.gemma-add-task-btn:not(.bound)').forEach(btn => {
+        btn.classList.add('bound');
+        btn.addEventListener('click', () => {
+          try {
+            const raw = btn.getAttribute('data-gemma-task');
+            if (raw) {
+              const parsed = JSON.parse(decodeURIComponent(raw));
+              addNewTaskFromGemma(parsed);
+              btn.classList.add('added');
+              btn.innerText = '✓ Added to Planner';
+            }
+          } catch (err) {
+            console.error('Failed to add task from Gemma:', err);
+          }
+        });
+      });
+    }
+    
+    attachTaskListeners();
     document.querySelectorAll('.gemma-quick-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const promptText = chip.getAttribute('data-quick-prompt');
         if (promptText) {
+          const ta = document.getElementById('gemma-input-text');
+          if(ta) ta.value = promptText;
           handleGemmaUserSend(promptText);
         }
       });
-    });
-
-    // Add Task from Gemma Message Button
-    document.querySelectorAll('.gemma-add-task-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        try {
-          const raw = btn.getAttribute('data-gemma-task');
-          if (raw) {
-            const parsed = JSON.parse(decodeURIComponent(raw));
-            addNewTaskFromGemma(parsed);
-            btn.classList.add('added');
-            btn.innerText = '✓ Added to Planner';
-          }
-        } catch (err) {
-          console.error('Failed to add task from Gemma:', err);
-        }
-      });
-    });
-
-    // File Attachment
-    const fileInput = document.getElementById('gemma-file-input');
-    document.getElementById('btn-gemma-trigger-attach')?.addEventListener('click', () => {
-      fileInput?.click();
-    });
-
-    fileInput?.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      processGemmaImageFile(file);
-    });
-
-    // Remove Attachment
-    document.getElementById('btn-gemma-remove-attach')?.addEventListener('click', () => {
-      state.gemmaChat.attachedImage = null;
-      render();
     });
 
     // Input Textarea
@@ -6540,24 +6474,8 @@ ${contextStr}`;
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           const text = textarea.value.trim();
-          if (text || state.gemmaChat.attachedImage) {
+          if (text) {
             handleGemmaUserSend(text);
-          }
-        }
-      });
-
-      // Paste handler for screenshots (Ctrl+V)
-      textarea.addEventListener('paste', (e) => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].type.indexOf('image') !== -1) {
-            const blob = items[i].getAsFile();
-            if (blob) {
-              processGemmaImageFile(blob, 'pasted-screenshot.png');
-              e.preventDefault();
-              break;
-            }
           }
         }
       });
@@ -6566,7 +6484,7 @@ ${contextStr}`;
     // Send Button
     document.getElementById('btn-gemma-send')?.addEventListener('click', () => {
       const text = textarea?.value?.trim() || '';
-      if (text || state.gemmaChat.attachedImage) {
+      if (text) {
         handleGemmaUserSend(text);
       }
     });
@@ -6574,57 +6492,51 @@ ${contextStr}`;
     scrollGemmaToBottom();
   }
 
-  function processGemmaImageFile(file, overrideName = null) {
-    if (!file.type.startsWith('image/')) {
-      showBanner('Please upload an image file (PNG, JPG, WebP).', 'warning');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target.result;
-      const base64 = dataUrl.split(',')[1];
-      state.gemmaChat.attachedImage = {
-        name: overrideName || file.name || 'image.png',
-        mimeType: file.type || 'image/jpeg',
-        base64,
-        dataUrl,
-      };
-      render();
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function scrollGemmaToBottom() {
-    setTimeout(() => {
-      const container = document.getElementById('gemma-messages-container');
-      if (container) {
-        container.scrollTop = container.scrollHeight;
-      }
-    }, 50);
-  }
-
   async function handleGemmaUserSend(userText) {
-    const prompt = userText || (state.gemmaChat.attachedImage ? 'Please analyze this attached image.' : '');
+    const prompt = userText;
     if (!prompt) return;
-
-    const attached = state.gemmaChat.attachedImage;
 
     const userMessage = {
       id: `msg-u-${Date.now()}`,
       role: 'user',
       text: prompt,
-      image: attached ? attached.dataUrl : null,
       timestamp: Date.now(),
     };
 
     state.gemmaChat.messages.push(userMessage);
-    state.gemmaChat.attachedImage = null; // Reset attachment
     state.gemmaChat.isGenerating = true;
-    render();
+
+    // Dynamically insert user message so we don't break focus by calling render()
+    const container = document.getElementById('gemma-messages-container');
+    if (container) {
+      container.insertAdjacentHTML('beforeend', `
+        <div class="gemma-msg-row user">
+          <div class="gemma-msg-avatar">👤</div>
+          <div class="gemma-msg-bubble">
+            <div>${escapeHtml(userMessage.text).replace(/\n/g, '<br/>')}</div>
+          </div>
+        </div>
+        <div class="gemma-msg-row ai" id="gemma-loading-indicator">
+          <div class="gemma-msg-avatar">✦</div>
+          <div class="gemma-msg-bubble">
+            <span class="pulse-dot" style="display:inline-block;margin-right:6px;"></span>
+            <em>Thinking...</em>
+          </div>
+        </div>
+      `);
+    }
+
+    // Clear input area smoothly
+    const textarea = document.getElementById('gemma-input-text');
+    if (textarea) {
+      textarea.value = '';
+      textarea.style.height = '24px';
+      textarea.focus();
+    }
     scrollGemmaToBottom();
 
     try {
-      const responseText = await requestGemmaAIResponse(prompt, attached);
+      const responseText = await requestGemmaAIResponse(prompt);
       const aiMessage = {
         id: `msg-ai-${Date.now()}`,
         role: 'assistant',
@@ -6633,18 +6545,70 @@ ${contextStr}`;
       };
       state.gemmaChat.messages.push(aiMessage);
       saveGemmaChatHistory(state.gemmaChat.messages);
+      
+      if (container) {
+        const loading = document.getElementById('gemma-loading-indicator');
+        if (loading) loading.remove();
+        
+        container.insertAdjacentHTML('beforeend', `
+          <div class="gemma-msg-row ai">
+            <div class="gemma-msg-avatar">✦</div>
+            <div class="gemma-msg-bubble">
+              <div>${formatGemmaMarkdown(aiMessage.text)}</div>
+            </div>
+          </div>
+        `);
+      }
     } catch (err) {
       console.error('Gemma processing error:', err);
-      state.gemmaChat.messages.push({
+      const errMsg = {
         id: `msg-ai-${Date.now()}`,
         role: 'assistant',
         text: `### ⚠️ Could not complete request\n\n${err.message || 'Unknown error occurred. Please check network or API key.'}`,
         timestamp: Date.now(),
-      });
+      };
+      state.gemmaChat.messages.push(errMsg);
+      
+      if (container) {
+        const loading = document.getElementById('gemma-loading-indicator');
+        if (loading) loading.remove();
+        container.insertAdjacentHTML('beforeend', `
+          <div class="gemma-msg-row ai">
+            <div class="gemma-msg-avatar">✦</div>
+            <div class="gemma-msg-bubble">
+              <div>${formatGemmaMarkdown(errMsg.text)}</div>
+            </div>
+          </div>
+        `);
+      }
     } finally {
       state.gemmaChat.isGenerating = false;
-      render();
+      
+      // Remove loading indicator just in case
+      const loading = document.getElementById('gemma-loading-indicator');
+      if (loading) loading.remove();
+      
       scrollGemmaToBottom();
+      
+      // Re-attach listeners to newly created task buttons
+      if (container) {
+        container.querySelectorAll('.gemma-add-task-btn:not(.bound)').forEach(btn => {
+          btn.classList.add('bound');
+          btn.addEventListener('click', () => {
+            try {
+              const raw = btn.getAttribute('data-gemma-task');
+              if (raw) {
+                const parsed = JSON.parse(decodeURIComponent(raw));
+                addNewTaskFromGemma(parsed);
+                btn.classList.add('added');
+                btn.innerText = '✓ Added to Planner';
+              }
+            } catch (err) {
+              console.error('Failed to add task from Gemma:', err);
+            }
+          });
+        });
+      }
     }
   }
 

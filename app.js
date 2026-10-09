@@ -179,6 +179,151 @@
     loading: false,
   };
 
+  const dsaUIState = {
+    search: '',
+    difficulty: 'all', // 'all' | 'Easy' | 'Medium' | 'Hard'
+    status: 'all', // 'all' | 'solved' | 'in-progress' | 'not-started' | 'starred'
+    view: 'sheet', // 'sheet' | 'cards'
+    expandedTopics: {}, // id -> boolean
+    activeSubSheet: 'dsa', // 'dsa' | 'dp'
+    activeTimerProblemId: null,
+  };
+
+  function renderCompanyBadgesHtml(companies) {
+    if (!companies || companies.length === 0) return '<span class="text-muted text-xs">—</span>';
+    return `
+      <div class="dsa-company-cluster">
+        ${companies.map(c => {
+          let name = typeof c === 'string' ? c : (c.name || '');
+          if (name.startsWith('+')) {
+            return `<span class="company-badge-count">${escapeHtml(name)}</span>`;
+          }
+          const lower = name.toLowerCase();
+          let bg = '#1e293b';
+          let text = '#ffffff';
+          let glyph = name.charAt(0).toUpperCase();
+
+          if (lower.includes('amazon')) { bg = '#131921'; glyph = 'a'; text = '#ff9900'; }
+          else if (lower.includes('adobe')) { bg = '#fa0f00'; glyph = 'A'; text = '#ffffff'; }
+          else if (lower.includes('google')) { bg = '#ffffff'; glyph = 'G'; text = '#4285f4'; }
+          else if (lower.includes('microsoft')) { bg = '#00a4ef'; glyph = '⊞'; text = '#ffffff'; }
+          else if (lower.includes('meta') || lower.includes('facebook')) { bg = '#0668e1'; glyph = '∞'; text = '#ffffff'; }
+          else if (lower.includes('apple')) { bg = '#111827'; glyph = ''; text = '#ffffff'; }
+          else if (lower.includes('walmart')) { bg = '#0071ce'; glyph = '✱'; text = '#ffc220'; }
+          else if (lower.includes('citadel')) { bg = '#0f172a'; glyph = 'C'; text = '#38bdf8'; }
+
+          return `<span class="company-logo-circle" title="${escapeHtml(name)}" style="background: ${bg}; color: ${text};">${glyph}</span>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function getDefaultDSAProblemsForTopic(topicName) {
+    const t = (topicName || '').toLowerCase();
+    
+    // Day 1 : Array (Part 1) - EXACT from Screenshot 2
+    if (t.includes('day 1') || (t.includes('array') && t.includes('part 1'))) {
+      return [
+        { id: 'p-d1-1', title: 'Repeat & missing number', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://www.geeksforgeeks.org/find-a-repeating-and-a-missing-number/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon'], note: 'Mathematical sum and square-sum equations.' },
+        { id: 'p-d1-2', title: 'Merge 2 sorted array without extra space', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/merge-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Adobe', 'Amazon', '+9'], note: 'Gap method or insertion from end.' },
+        { id: 'p-d1-3', title: 'Single Number', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/single-number/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Adobe', 'Google', '+8'], note: 'XOR of all elements cancels duplicates in O(N).' },
+        { id: 'p-d1-4', title: 'Stock Buy & Sell', difficulty: 'Easy', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/best-time-to-buy-and-sell-stock/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Walmart', '+15'], note: 'Single pass tracking minimum buy price.' },
+        { id: 'p-d1-5', title: 'Pow (x^n)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/powx-n/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+6'], note: 'Binary exponentiation in O(log N).' },
+        { id: 'p-d1-6', title: 'Majority Element', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/majority-element/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon'], note: "Boyer-Moore Voting Algorithm in O(N)." },
+      ];
+    }
+
+    // Day 2 : Array (Part 2)
+    if (t.includes('day 2') || (t.includes('array') && t.includes('part 2'))) {
+      return [
+        { id: 'p-d2-1', title: "Maximum Subarray Sum (Kadane's Algorithm)", difficulty: 'Easy', status: 'done', starred: true, link: 'https://leetcode.com/problems/maximum-subarray/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+12'], note: "Track maxEndingHere and maxSoFar. Reset if negative." },
+        { id: 'p-d2-2', title: 'Trapping Rain Water', difficulty: 'Hard', status: 'in-progress', starred: true, link: 'https://leetcode.com/problems/trapping-rain-water/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon', '+18'], note: "Two pointers with leftMax and rightMax bounds." },
+        { id: 'p-d2-3', title: 'Two Sum II - Input Array Is Sorted', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/two-sum-ii-input-array-is-sorted/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+6'], note: "Two pointer convergence from left and right." },
+        { id: 'p-d2-4', title: 'Container With Most Water', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/container-with-most-water/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Google', '+10'], note: "Move pointer at smaller height inward." },
+        { id: 'p-d2-5', title: '3Sum - Find All Unique Triplets', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/3sum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+14'], note: "Sort array, fix one element, use Two Pointers for remaining." },
+        { id: 'p-d2-6', title: 'Sort Colors (Dutch National Flag)', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/sort-colors/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Salesforce', '+8'], note: "3 pointers (low, mid, high) in one pass." },
+      ];
+    }
+
+    // Day 3 : Sliding Window & Substrings
+    if (t.includes('day 3') || t.includes('sliding window') || t.includes('two pointer')) {
+      return [
+        { id: 'p-d3-1', title: 'Longest Substring Without Repeating Characters', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/longest-substring-without-repeating-characters/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+20'], note: "Hash map of last seen indices + left pointer jump." },
+        { id: 'p-d3-2', title: 'Minimum Window Substring', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/minimum-window-substring/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+16'], note: "Frequency map with required character counter." },
+        { id: 'p-d3-3', title: 'Longest Repeating Character Replacement', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/longest-repeating-character-replacement/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+7'], note: "windowSize - maxFreq <= k invariant." },
+        { id: 'p-d3-4', title: 'Sliding Window Maximum', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/sliding-window-maximum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Citadel', '+12'], note: "Monotonic decreasing deque storing indices." },
+        { id: 'p-d3-5', title: 'Permutation in String', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/permutation-in-string/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Amazon', '+9'], note: "Fixed size sliding window comparing frequency arrays." },
+        { id: 'p-d3-6', title: 'Subarray Product Less Than K', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/subarray-product-less-than-k/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', '+4'], note: "Shrink left while product >= k; add (right - left + 1)." },
+      ];
+    }
+
+    // Day 4 : Binary Search & Math
+    if (t.includes('day 4') || t.includes('binary search')) {
+      return [
+        { id: 'p-d4-1', title: 'Search in Rotated Sorted Array', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/search-in-rotated-sorted-array/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+15'], note: "Identify which half is sorted, check if target lies within." },
+        { id: 'p-d4-2', title: 'Find Minimum in Rotated Sorted Array', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/find-minimum-in-rotated-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+10'], note: "Compare mid with right to determine inflection." },
+        { id: 'p-d4-3', title: 'Koko Eating Bananas', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/koko-eating-bananas/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+8'], note: "Binary search on speed space [1, max(piles)]." },
+        { id: 'p-d4-4', title: 'Allocate Minimum Pages (Painter Partition)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/allocate-minimum-number-of-pages0937/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Flipkart', '+11'], note: "Feasibility check on max page allocation per student." },
+        { id: 'p-d4-5', title: 'Median of Two Sorted Arrays', difficulty: 'Hard', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/median-of-two-sorted-arrays/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Apple', '+18'], note: "Partition both arrays simultaneously in O(log(min(N, M)))." },
+        { id: 'p-d4-6', title: 'Single Element in a Sorted Array', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/single-element-in-a-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+7'], note: "Compare index parity with mid." },
+      ];
+    }
+
+    // Day 5 : Linked Lists
+    if (t.includes('day 5') || t.includes('linked list')) {
+      return [
+        { id: 'p-d5-1', title: 'Reverse a Linked List', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/reverse-linked-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Amazon', '+15'], note: "3 pointers (prev, curr, next)." },
+        { id: 'p-d5-2', title: "Linked List Cycle (Floyd's Tortoise)", difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/linked-list-cycle/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+10'], note: "Slow moves 1 step, fast moves 2 steps." },
+        { id: 'p-d5-3', title: 'Merge Two Sorted Lists', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/merge-two-sorted-lists/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+12'], note: "Dummy head pointer comparison." },
+        { id: 'p-d5-4', title: 'Remove Nth Node From End of List', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/remove-nth-node-from-end-of-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Apple', '+8'], note: "Fast pointer given N-step head start." },
+        { id: 'p-d5-5', title: 'Merge k Sorted Lists', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/merge-k-sorted-lists/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Google', '+16'], note: "Min-heap storing k node heads." },
+        { id: 'p-d5-6', title: 'LRU Cache Implementation', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/lru-cache/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon', '+25'], note: "Doubly Linked List + Hash Map for O(1) operations." },
+      ];
+    }
+
+    // Day 6 : Binary Trees & BSTs
+    if (t.includes('day 6') || t.includes('tree') || t.includes('bst')) {
+      return [
+        { id: 'p-d6-1', title: 'Maximum Depth of Binary Tree', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/maximum-depth-of-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+8'], note: "1 + max(depth(left), depth(right))." },
+        { id: 'p-d6-2', title: 'Invert Binary Tree', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/invert-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+10'], note: "Swap left and right children recursively." },
+        { id: 'p-d6-3', title: 'Diameter of Binary Tree', difficulty: 'Easy', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/diameter-of-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+12'], note: "Track max(leftHeight + rightHeight) at every node." },
+        { id: 'p-d6-4', title: 'Lowest Common Ancestor in BST', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/lowest-common-ancestor-of-a-binary-search-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+14'], note: "First node where p and q diverge in value." },
+        { id: 'p-d6-5', title: 'Binary Tree Level Order Traversal', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/binary-tree-level-order-traversal/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+15'], note: "Queue BFS processing level by level." },
+        { id: 'p-d6-6', title: 'Validate Binary Search Tree', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/validate-binary-search-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+18'], note: "Carry min and max valid bounds down recursion." },
+      ];
+    }
+
+    // Day 7 : Dynamic Programming
+    if (t.includes('day 7') || t.includes('dynamic programming') || t.includes('dp')) {
+      return [
+        { id: 'p-d7-1', title: 'Climbing Stairs', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/climbing-stairs/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+12'], note: "Fibonacci recurrence relation: dp[i] = dp[i-1] + dp[i-2]." },
+        { id: 'p-d7-2', title: 'Coin Change (Minimum Coins)', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/coin-change/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+16'], note: "Bottom-up 1D DP: dp[i] = min(dp[i], 1 + dp[i - coin])." },
+        { id: 'p-d7-3', title: 'Longest Increasing Subsequence (LIS)', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/longest-increasing-subsequence/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+14'], note: "O(N log N) patience sorting with binary search." },
+        { id: 'p-d7-4', title: '0/1 Knapsack Problem', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/0-1-knapsack-problem0927/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Flipkart', 'Amazon', '+12'], note: "Pick or leave decision with 1D reverse capacity loop." },
+        { id: 'p-d7-5', title: 'Longest Common Subsequence (LCS)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/longest-common-subsequence/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+10'], note: "2D grid match: 1 + diag if match, else max(up, left)." },
+        { id: 'p-d7-6', title: 'Edit Distance (Levenshtein)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/edit-distance/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+15'], note: "Min of insert, delete, and replace operations." },
+      ];
+    }
+
+    // Day 8 : Graphs & Algorithms
+    if (t.includes('day 8') || t.includes('graph')) {
+      return [
+        { id: 'p-d8-1', title: 'Number of Islands', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/number-of-islands/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+22'], note: "Grid DFS/BFS sinking visited land '1' to '0'." },
+        { id: 'p-d8-2', title: 'Clone Graph', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/clone-graph/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+12'], note: "Map old node to new node during BFS/DFS." },
+        { id: 'p-d8-3', title: 'Course Schedule (Kahn Topological Sort)', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/course-schedule/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+16'], note: "In-degree array + BFS queue processing zero in-degrees." },
+        { id: 'p-d8-4', title: "Dijkstra's Shortest Path Algorithm", difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/implementing-dijkstra-set-1-adjacency-matrix/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+14'], note: "Priority queue with (distance, node) pairs." },
+        { id: 'p-d8-5', title: 'Rotting Oranges (Multi-Source BFS)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/rotting-oranges/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+15'], note: "Push all rotten oranges initially into BFS queue." },
+        { id: 'p-d8-6', title: 'Alien Dictionary', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/alien-dictionary/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+14'], note: "Compare adjacent word prefixes to build directed edges." },
+      ];
+    }
+
+    return [
+      { id: `p-${Date.now()}-1`, title: `${topicName} - Practice Problem 1`, difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problemset/all/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon'], note: 'Fundamental concept test.' },
+      { id: `p-${Date.now()}-2`, title: `${topicName} - Practice Problem 2`, difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problemset/all/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google'], note: 'Core algorithm pattern.' },
+      { id: `p-${Date.now()}-3`, title: `${topicName} - Advanced Application`, difficulty: 'Hard', status: 'not-started', starred: false, link: 'https://leetcode.com/problemset/all/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta'], note: 'Edge case & optimization.' },
+    ];
+  }
+
   const DEFAULT_CATEGORIES = [
     { id: 'cat-dsa', label: 'DSA & Algorithms', color: '#f59e0b' },
     { id: 'cat-college', label: 'College & Exams', color: '#3b82f6' },
@@ -1477,14 +1622,14 @@
     ];
 
     const dsaTopics = [
-      { id: 'dsa-1', name: 'Arrays & Two Pointers', status: 'done', problemsSolved: 28, note: 'Kadane algorithm & Dutch National Flag.' },
-      { id: 'dsa-2', name: 'Sliding Window & Substrings', status: 'done', problemsSolved: 19, note: 'Variable size window pattern mastered.' },
-      { id: 'dsa-3', name: 'Binary Search On Answers', status: 'in-progress', problemsSolved: 14, note: 'Practice Painter Partition & Koko Bananas.' },
-      { id: 'dsa-4', name: 'Linked Lists & Fast/Slow', status: 'done', problemsSolved: 16, note: 'Cycle detection and reversal patterns.' },
-      { id: 'dsa-5', name: 'Binary Trees & BSTs', status: 'in-progress', problemsSolved: 22, note: 'Lowest Common Ancestor & Diameter.' },
-      { id: 'dsa-6', name: 'Dynamic Programming (1D/2D)', status: 'in-progress', problemsSolved: 31, note: 'Grid DP and 0/1 knapsack variations.' },
-      { id: 'dsa-7', name: 'Graphs (BFS/DFS, Dijkstra)', status: 'in-progress', problemsSolved: 18, note: 'Topological sort & Min-heap Dijkstra.' },
-      { id: 'dsa-8', name: 'Heaps & Priority Queues', status: 'done', problemsSolved: 15, note: 'Median from stream and Top-K elements.' },
+      { id: 'dsa-1', name: 'Day 1 : Array (Part 1)', status: 'in-progress', problems: getDefaultDSAProblemsForTopic('Day 1 : Array (Part 1)'), problemsSolved: 0, note: 'Foundational array questions, prefix sum & bit manipulation.' },
+      { id: 'dsa-2', name: 'Day 2 : Array (Part 2)', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 2 : Array (Part 2)'), problemsSolved: 0, note: 'Kadane algorithm & two pointer convergence.' },
+      { id: 'dsa-3', name: 'Day 3 : Two Pointers & Sliding Window', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 3 : Two Pointers & Sliding Window'), problemsSolved: 0, note: 'Variable size window & hash map index trackers.' },
+      { id: 'dsa-4', name: 'Day 4 : Binary Search & Math', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 4 : Binary Search & Math'), problemsSolved: 0, note: 'Rotated arrays & search on monotonic answer space.' },
+      { id: 'dsa-5', name: 'Day 5 : Linked Lists', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 5 : Linked Lists'), problemsSolved: 0, note: 'Fast & slow pointers, reversal & LRU cache.' },
+      { id: 'dsa-6', name: 'Day 6 : Binary Trees & BSTs', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 6 : Binary Trees & BSTs'), problemsSolved: 0, note: 'LCA, diameter, and level order traversal.' },
+      { id: 'dsa-7', name: 'Day 7 : Dynamic Programming', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 7 : Dynamic Programming'), problemsSolved: 0, note: '1D & 2D memoization, knapsack & subsequence patterns.' },
+      { id: 'dsa-8', name: 'Day 8 : Graphs & Algorithms', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 8 : Graphs & Algorithms'), problemsSolved: 0, note: 'BFS/DFS grid traversal, topological sort & Dijkstra.' },
     ];
 
     const collegeSubjects = [
@@ -1794,14 +1939,35 @@
             actualMin: Math.max(1, Number(s.actualMin) || 45),
           })) : seed.studySessions;
 
-          // Normalize DSA topics
-          const dsaTopics = Array.isArray(parsed.dsaTopics) ? parsed.dsaTopics.map((d, idx) => ({
-            id: d.id || `dsa-${Date.now()}-${idx}`,
-            name: d.name || 'DSA Topic',
-            status: ['not-started', 'in-progress', 'done'].includes(d.status) ? d.status : 'not-started',
-            problemsSolved: Math.max(0, Number(d.problemsSolved) || 0),
-            note: d.note || '',
-          })) : seed.dsaTopics;
+          // Normalize DSA topics with interview roadmap problems
+          const dsaTopics = Array.isArray(parsed.dsaTopics) ? parsed.dsaTopics.map((d, idx) => {
+            const defaultProbs = getDefaultDSAProblemsForTopic(d.name);
+            const problems = Array.isArray(d.problems) && d.problems.length > 0
+              ? d.problems.map((p, pIdx) => {
+                  const def = defaultProbs[pIdx] || {};
+                  return {
+                    ...def,
+                    ...p,
+                    companies: p.companies || def.companies || ['Amazon'],
+                    timer: p.timer || def.timer || '30Min',
+                    youtube: p.youtube || def.youtube || 'https://youtube.com',
+                    article: p.article || def.article || 'Read',
+                  };
+                })
+              : defaultProbs;
+            const computedSolved = problems && problems.length > 0
+              ? problems.filter(p => p.status === 'done').length
+              : Math.max(0, Number(d.problemsSolved) || 0);
+
+            return {
+              id: d.id || `dsa-${Date.now()}-${idx}`,
+              name: d.name || `Day ${idx + 1} : DSA Topic`,
+              status: ['not-started', 'in-progress', 'done'].includes(d.status) ? d.status : 'not-started',
+              problemsSolved: computedSolved,
+              problems,
+              note: d.note || '',
+            };
+          }) : seed.dsaTopics;
 
           const collegeSubjects = Array.isArray(parsed.collegeSubjects) ? parsed.collegeSubjects : seed.collegeSubjects;
           const lostTimeEvents = Array.isArray(parsed.lostTimeEvents) ? parsed.lostTimeEvents : seed.lostTimeEvents;
@@ -3143,57 +3309,517 @@
   // TAB 3: DSA
   // -------------------------------------------------------------------------
   function renderDSAHtml() {
-    const total = state.dsaTopics.length;
-    const done = state.dsaTopics.filter(t => t.status === 'done').length;
-    const solved = state.dsaTopics.reduce((acc, t) => acc + (t.problemsSolved || 0), 0);
+    const allProblems = state.dsaTopics.flatMap(t => (t.problems || []));
+    const totalProblemsCount = allProblems.length;
+    const solvedProblemsCount = allProblems.filter(p => p.status === 'done').length;
+    
+    const easyProblems = allProblems.filter(p => p.difficulty === 'Easy');
+    const easySolved = easyProblems.filter(p => p.status === 'done').length;
+    const easyPct = easyProblems.length > 0 ? Math.round((easySolved / easyProblems.length) * 100) : 0;
+
+    const medProblems = allProblems.filter(p => p.difficulty === 'Medium');
+    const medSolved = medProblems.filter(p => p.status === 'done').length;
+    const medPct = medProblems.length > 0 ? Math.round((medSolved / medProblems.length) * 100) : 0;
+
+    const hardProblems = allProblems.filter(p => p.difficulty === 'Hard');
+    const hardSolved = hardProblems.filter(p => p.status === 'done').length;
+    const hardPct = hardProblems.length > 0 ? Math.round((hardSolved / hardProblems.length) * 100) : 0;
+
+    const starredCount = allProblems.filter(p => p.starred).length;
+    const inProgressCount = allProblems.filter(p => p.status === 'in-progress').length;
+    const overallPct = totalProblemsCount > 0 ? Math.round((solvedProblemsCount / totalProblemsCount) * 100) : 0;
+    const questionsLeft = Math.max(0, totalProblemsCount - solvedProblemsCount);
+
+    // Filter topics and problems according to dsaUIState
+    const searchLower = (dsaUIState.search || '').trim().toLowerCase();
+
+    const filteredTopics = state.dsaTopics.map((topic, idx) => {
+      let problems = topic.problems || [];
+
+      // Apply problem filters
+      if (searchLower) {
+        const topicMatches = topic.name.toLowerCase().includes(searchLower) || (topic.note || '').toLowerCase().includes(searchLower);
+        if (!topicMatches) {
+          problems = problems.filter(p => 
+            p.title.toLowerCase().includes(searchLower) ||
+            (p.note || '').toLowerCase().includes(searchLower) ||
+            (p.companies || []).some(c => (typeof c === 'string' ? c : c.name || '').toLowerCase().includes(searchLower))
+          );
+        }
+      }
+
+      if (dsaUIState.difficulty !== 'all') {
+        problems = problems.filter(p => p.difficulty === dsaUIState.difficulty);
+      }
+
+      if (dsaUIState.status === 'solved') {
+        problems = problems.filter(p => p.status === 'done');
+      } else if (dsaUIState.status === 'in-progress') {
+        problems = problems.filter(p => p.status === 'in-progress');
+      } else if (dsaUIState.status === 'not-started') {
+        problems = problems.filter(p => p.status === 'not-started');
+      } else if (dsaUIState.status === 'starred') {
+        problems = problems.filter(p => Boolean(p.starred));
+      }
+
+      const isTopicSearchMatch = searchLower && (topic.name.toLowerCase().includes(searchLower) || (topic.note || '').toLowerCase().includes(searchLower));
+      const shouldInclude = isTopicSearchMatch || problems.length > 0 || !searchLower;
+
+      return {
+        ...topic,
+        displayIndex: idx + 1,
+        filteredProblems: problems,
+        shouldInclude,
+      };
+    }).filter(t => t.shouldInclude);
 
     return `
       <div class="dsa-page animate-fade-in">
-        <div class="card mb-4">
-          <div class="flex justify-between items-start flex-wrap gap-2 mb-3">
-            <div>
-              <h1 class="font-bold text-xl">DSA Problem Tracker</h1>
-              <p class="text-xs text-secondary">Track algorithm pattern mastery and problem counts.</p>
+        <!-- Multi-column Layout matching Screenshot 1 -->
+        <div class="dsa-main-grid-layout">
+          
+          <!-- 📑 Left Subnav Sidebar -->
+          <aside class="dsa-subnav-sidebar">
+            <div class="dsa-subnav-group-title">
+              <span>📑 Sheets</span>
+              <span style="font-size: 10px;">⌃</span>
             </div>
-            <button class="btn btn-primary" data-action="open-modal-dsa">+ Add DSA Topic</button>
-          </div>
-          <div class="grid-3 mt-2">
-            <div class="metric-box"><span class="metric-label">Problems Solved</span><span class="metric-value font-mono text-amber">${solved}</span></div>
-            <div class="metric-box"><span class="metric-label">Mastered</span><span class="metric-value font-mono text-low">${done}/${total}</span></div>
-            <div class="metric-box"><span class="metric-label">Coverage</span><span class="metric-value font-mono">${total > 0 ? Math.round((done / total) * 100) : 0}%</span></div>
-          </div>
-        </div>
+            <a class="dsa-subnav-link ${dsaUIState.activeSubSheet === 'dsa' ? 'active' : ''}" data-sheet-tab="dsa">
+              <span>→</span> <span>DSA Sheet</span>
+            </a>
+            <a class="dsa-subnav-link ${dsaUIState.activeSubSheet === 'dp' ? 'active' : ''}" data-sheet-tab="dp">
+              <span>→</span> <span>DP Sheet</span>
+            </a>
+            
+            <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 6px 0;"></div>
 
-        <div class="grid-3">
-          ${state.dsaTopics.length === 0 ? `
-            <div class="card text-center py-8" style="grid-column: 1 / -1;">
-              <div style="font-size:32px;margin-bottom:8px;">🌲</div>
-              <h3 class="font-bold text-base mb-1">No DSA Topics Tracked Yet</h3>
-              <p class="text-xs text-secondary mb-4">Add the data structures or algorithm patterns you are practicing (e.g. Two Pointers, Sliding Window, DP).</p>
-              <button class="btn btn-primary btn-sm" data-action="open-modal-dsa">+ Add DSA Topic</button>
+            <a class="dsa-subnav-link" data-sheet-tab="articles">
+              <span>📰</span> <span>Articles</span>
+            </a>
+            <a class="dsa-subnav-link" data-sheet-tab="notes">
+              <span>📑</span> <span>Downloadable Notes</span>
+            </a>
+
+            <div class="dsa-subnav-tier-badge">
+              <span>SIGMA X</span>
+              <span>⌃</span>
             </div>
-          ` : state.dsaTopics.map(topic => `
-            <div class="card card-hover dsa-card">
-              <div class="dsa-card-top flex justify-between items-center">
-                <button type="button" class="status-clickable-badge" data-cycle-dsa="${topic.id}" title="Click to cycle status (○ Not Started / ⚡ In Progress / ✓ Mastered)">
-                  <span class="badge ${topic.status === 'done' ? 'badge-low' : topic.status === 'in-progress' ? 'badge-medium' : 'badge-neutral'}">
-                    ${topic.status === 'done' ? '✓ Mastered' : topic.status === 'in-progress' ? '⚡ In Progress' : '○ Not Started'}
-                  </span>
-                </button>
-                <button type="button" class="btn btn-ghost btn-sm text-danger dsa-del-btn" data-delete-dsa="${topic.id}" title="Delete topic">✕</button>
-              </div>
-              <h3 class="font-semibold text-sm mt-2">${escapeHtml(topic.name)}</h3>
-              ${topic.note ? `<p class="text-xs text-secondary mt-1">${escapeHtml(topic.note)}</p>` : ''}
-              <div class="dsa-counter-row mt-3">
-                <span class="text-xs text-muted font-medium">Problems Solved</span>
-                <div class="dsa-stepper">
-                  <button type="button" class="dsa-stepper-btn" data-dsa-adj="${topic.id}" data-delta="-1" title="Decrease count">−</button>
-                  <input type="number" class="dsa-stepper-input font-mono" data-dsa-set="${topic.id}" value="${topic.problemsSolved}" min="0" />
-                  <button type="button" class="dsa-stepper-btn" data-dsa-adj="${topic.id}" data-delta="1" title="Increase count">+</button>
+          </aside>
+
+          <!-- 🌟 Center Content Area -->
+          <main class="dsa-center-content">
+            
+            <!-- 🌟 Hero Header Card (Blueprint Grid Pattern matching Screenshot 1) -->
+            <div class="dsa-hero-card">
+              <div class="dsa-hero-top">
+                <div>
+                  <h1 class="dsa-hero-title">DSA Sheet - Most Important Interview Questions</h1>
+                  <ul class="dsa-hero-bullets">
+                    <li><span>•</span> <span>All DSA topics covered</span></li>
+                    <li><span>•</span> <span>Will this be enough for Placements, is this for me? <a href="javascript:void(0)" class="text-accent" style="text-decoration: underline;" onclick="showBanner('This sheet covers the top 150+ frequently asked interview patterns across FAANG and top product companies!', 'info')">View More ∨</a></span></li>
+                  </ul>
+
+                  <div class="dsa-social-proof">
+                    <div class="dsa-avatars-cluster">
+                      <span class="dsa-avatar-circle" style="background:#3b82f6;">👨‍💻</span>
+                      <span class="dsa-avatar-circle" style="background:#10b981;">👩‍💻</span>
+                      <span class="dsa-avatar-circle" style="background:#8b5cf6;">🧑‍💻</span>
+                      <span class="dsa-avatar-circle" style="background:#f59e0b;">👩‍🎓</span>
+                    </div>
+                    <span class="dsa-social-text">50K+ New users in last 30 days 🚀</span>
+                  </div>
+
+                  <div class="dsa-hero-actions">
+                    <button type="button" class="dsa-pill-action" onclick="showBanner('Group study rooms are live! Share your progress with your peer network.', 'info')">
+                      <span>👥</span> <span>Group Study</span>
+                    </button>
+                    <button type="button" class="dsa-pill-action ${dsaUIState.status === 'starred' ? 'active' : ''}" data-action="filter-saved">
+                      <span>🔖</span> <span>Saved Questions (${starredCount})</span>
+                    </button>
+                  </div>
+
+                  <div class="dsa-sheet-promo-pill" onclick="showBanner('DSA 360 Full Stack & System Design tracker launching soon!', 'info')">
+                    <span>✨</span>
+                    <span class="badge badge-primary text-xs" style="font-size:9px;padding:1px 5px;background:rgba(255,255,255,0.2);">NEW</span>
+                    <span>DSA 360 Sheet coming soon</span>
+                  </div>
                 </div>
               </div>
             </div>
-          `).join('')}
+
+            <!-- 📅 Personalized Roadmap Banner Card (matching Screenshot 1) -->
+            <div class="dsa-roadmap-banner">
+              <div class="dsa-roadmap-banner-left">
+                <div class="dsa-roadmap-icon-box">📅</div>
+                <div>
+                  <div class="dsa-roadmap-tag">YOUR DSA ROADMAP • Personalized</div>
+                  <h3 class="font-bold text-base text-primary mt-1">Plan Your DSA Journey</h3>
+                  <p class="text-xs text-secondary mt-1">Turn your goals into a simple daily plan and stay consistent until you complete your preparation.</p>
+                </div>
+              </div>
+              <button type="button" class="dsa-plan-btn" data-action="create-dsa-plan">Create My Plan →</button>
+            </div>
+
+            <!-- 🔍 Toolbar: Search, Difficulty Chips & View Mode -->
+            <div class="dsa-toolbar">
+              <div class="dsa-search-wrap">
+                <input type="text" class="input-text search-input font-mono" id="dsa-search-input" placeholder="🔍 Search questions, algorithms, or companies (e.g. Kadane, Amazon)..." value="${escapeHtml(dsaUIState.search)}" />
+              </div>
+
+              <div class="dsa-filter-chips">
+                <button type="button" class="dsa-chip ${dsaUIState.difficulty === 'all' && dsaUIState.status === 'all' ? 'active' : ''}" data-dsa-filter-diff="all" data-dsa-filter-status="all">All (${totalProblemsCount})</button>
+                <button type="button" class="dsa-chip ${dsaUIState.difficulty === 'Easy' ? 'active' : ''}" data-dsa-filter-diff="Easy">🟢 Easy (${easyProblems.length})</button>
+                <button type="button" class="dsa-chip ${dsaUIState.difficulty === 'Medium' ? 'active' : ''}" data-dsa-filter-diff="Medium">🟡 Medium (${medProblems.length})</button>
+                <button type="button" class="dsa-chip ${dsaUIState.difficulty === 'Hard' ? 'active' : ''}" data-dsa-filter-diff="Hard">🔴 Hard (${hardProblems.length})</button>
+                <button type="button" class="dsa-chip ${dsaUIState.status === 'starred' ? 'active' : ''}" data-dsa-filter-status="starred">⭐ Starred (${starredCount})</button>
+                <button type="button" class="dsa-chip ${dsaUIState.status === 'solved' ? 'active' : ''}" data-dsa-filter-status="solved">✓ Solved (${solvedProblemsCount})</button>
+                <button type="button" class="dsa-chip ${dsaUIState.status === 'in-progress' ? 'active' : ''}" data-dsa-filter-status="in-progress">⚡ In Progress (${inProgressCount})</button>
+              </div>
+
+              <div class="dsa-view-toggle">
+                <button type="button" class="dsa-view-btn ${dsaUIState.view === 'sheet' ? 'active' : ''}" data-dsa-view="sheet" title="Sheet Table Accordion View">📑 Sheet View</button>
+                <button type="button" class="dsa-view-btn ${dsaUIState.view === 'cards' ? 'active' : ''}" data-dsa-view="cards" title="Compact Cards View">🎴 Cards View</button>
+              </div>
+            </div>
+
+            <!-- 📑 Sheet Accordion View (Default Roadmap Format matching Screenshot 2) -->
+            ${dsaUIState.view === 'sheet' ? `
+              <div class="dsa-accordion-list">
+                ${filteredTopics.length === 0 ? `
+                  <div class="card text-center py-8">
+                    <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+                    <h3 class="font-bold text-base mb-1">No Matching Problems</h3>
+                    <p class="text-xs text-secondary mb-4">Try clearing your search query or filter chips to see the full DSA Sheet.</p>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dsa-reset-filters">Reset Filters</button>
+                  </div>
+                ` : filteredTopics.map(topic => {
+                  const isExpanded = dsaUIState.expandedTopics[topic.id] !== false; // default open
+                  const totalTopicProblems = (topic.problems || []).length;
+                  const solvedTopicProblems = (topic.problems || []).filter(p => p.status === 'done').length;
+                  const isTopicDone = topic.status === 'done' || (totalTopicProblems > 0 && solvedTopicProblems === totalTopicProblems);
+
+                  return `
+                    <div class="dsa-accordion-item ${isTopicDone ? 'is-mastered' : ''}" id="dsa-topic-${topic.id}">
+                      <!-- Topic Accordion Header (matching Screenshot 2: Day X : Topic Title | 0/6 | ⌃) -->
+                      <div class="dsa-accordion-header" data-toggle-dsa-accordion="${topic.id}">
+                        <div class="dsa-header-left">
+                          <span class="dsa-chevron-circle ${isExpanded ? '' : 'rotated'}">⌃</span>
+                          <div>
+                            <span class="dsa-topic-title">${escapeHtml(topic.name)}</span>
+                            ${topic.note ? `<span class="text-xs text-muted" style="display:block;margin-top:2px;">💡 ${escapeHtml(topic.note)}</span>` : ''}
+                          </div>
+                        </div>
+
+                        <div class="dsa-header-right" onclick="event.stopPropagation();">
+                          <!-- Solved Count Badge (e.g. 0/6) -->
+                          <div class="dsa-topic-progress-badge">
+                            <span>${solvedTopicProblems}/${totalTopicProblems}</span>
+                          </div>
+
+                          <!-- Topic status cycle button -->
+                          <button type="button" class="status-clickable-badge" data-cycle-dsa="${topic.id}" title="Click to cycle topic status">
+                            <span class="badge ${topic.status === 'done' ? 'badge-low' : topic.status === 'in-progress' ? 'badge-medium' : 'badge-neutral'}">
+                              ${topic.status === 'done' ? '✓ Mastered' : topic.status === 'in-progress' ? '⚡ In Progress' : '○ Not Started'}
+                            </span>
+                          </button>
+
+                          <!-- Stepper -->
+                          <div class="dsa-stepper">
+                            <button type="button" class="dsa-stepper-btn" data-dsa-adj="${topic.id}" data-delta="-1" title="Decrease count">−</button>
+                            <input type="number" class="dsa-stepper-input font-mono" data-dsa-set="${topic.id}" value="${topic.problemsSolved || solvedTopicProblems}" min="0" />
+                            <button type="button" class="dsa-stepper-btn" data-dsa-adj="${topic.id}" data-delta="1" title="Increase count">+</button>
+                          </div>
+
+                          <button type="button" class="btn btn-ghost btn-sm text-danger dsa-del-btn" data-delete-dsa="${topic.id}" title="Delete topic">✕</button>
+                        </div>
+                      </div>
+
+                      <!-- Expanded Problems Table (EXACT COLUMNS from Screenshot 2) -->
+                      ${isExpanded ? `
+                        <div class="dsa-table-wrap">
+                          <table class="dsa-problem-table">
+                            <thead>
+                              <tr>
+                                <th style="width: 44px; text-align: center;">○</th>
+                                <th>Problem</th>
+                                <th style="width: 80px; text-align: center;">Article</th>
+                                <th style="width: 70px; text-align: center;">Youtube</th>
+                                <th style="width: 75px; text-align: center;">Practice</th>
+                                <th style="width: 85px;">Level</th>
+                                <th style="width: 90px;">Timer</th>
+                                <th>Company</th>
+                                <th style="width: 50px; text-align: center;">Save</th>
+                                <th style="width: 40px; text-align: center;"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${topic.filteredProblems.length === 0 ? `
+                                <tr>
+                                  <td colspan="10" class="text-center py-4 text-xs text-secondary">
+                                    No problems match the active filters in this topic.
+                                  </td>
+                                </tr>
+                              ` : topic.filteredProblems.map(prob => {
+                                const isDone = prob.status === 'done';
+                                const isInProgress = prob.status === 'in-progress';
+                                const diffClass = (prob.difficulty || 'Easy').toLowerCase();
+                                const isTimerActive = dsaUIState.activeTimerProblemId === prob.id;
+
+                                return `
+                                  <tr class="dsa-problem-row ${isDone ? 'is-done' : ''}">
+                                    <!-- Check Status Toggle -->
+                                    <td style="text-align: center;">
+                                      <button type="button" class="dsa-status-circle-btn ${prob.status}" data-toggle-problem-status="${prob.id}" data-topic-id="${topic.id}" title="Toggle problem status">
+                                        ${isDone ? '✓' : isInProgress ? '⚡' : ''}
+                                      </button>
+                                    </td>
+
+                                    <!-- Problem Title -->
+                                    <td>
+                                      <span class="font-medium text-primary" style="${isDone ? 'text-decoration: line-through; opacity: 0.75;' : ''}">
+                                        ${escapeHtml(prob.title)}
+                                      </span>
+                                    </td>
+
+                                    <!-- Article Column -->
+                                    <td style="text-align: center;">
+                                      ${prob.article === 'Coming Soon' ? `
+                                        <span class="article-pill-coming">Coming Soon</span>
+                                      ` : `
+                                        <a href="${prob.link}" target="_blank" class="dsa-icon-circle-btn" title="Read Article">
+                                          <span>M≡</span>
+                                        </a>
+                                      `}
+                                    </td>
+
+                                    <!-- Youtube Column -->
+                                    <td style="text-align: center;">
+                                      <a href="${prob.youtube || 'https://youtube.com'}" target="_blank" rel="noopener noreferrer" class="dsa-icon-circle-btn youtube" title="Watch Video Solution">
+                                        ▶
+                                      </a>
+                                    </td>
+
+                                    <!-- Practice Column (Code icon) -->
+                                    <td style="text-align: center;">
+                                      <a href="${prob.link}" target="_blank" rel="noopener noreferrer" class="dsa-icon-circle-btn practice" title="Practice on LeetCode / GeeksforGeeks">
+                                        &lt;/&gt;
+                                      </a>
+                                    </td>
+
+                                    <!-- Level Column (Pill badge) -->
+                                    <td>
+                                      <span class="diff-pill diff-${diffClass}">${prob.difficulty || 'Easy'}</span>
+                                    </td>
+
+                                    <!-- Timer Column (30Min with play) -->
+                                    <td>
+                                      <button type="button" class="dsa-timer-btn ${isTimerActive ? 'is-active' : ''}" data-start-timer="${prob.id}" title="Start 30-minute practice timer">
+                                        <span>${escapeHtml(prob.timer || '30Min')}</span>
+                                        <span>⏱️</span>
+                                      </button>
+                                    </td>
+
+                                    <!-- Company Column (Logos + count) -->
+                                    <td>
+                                      ${renderCompanyBadgesHtml(prob.companies)}
+                                    </td>
+
+                                    <!-- Save / Bookmark Column -->
+                                    <td style="text-align: center;">
+                                      <button type="button" class="dsa-save-ribbon-btn ${prob.starred ? 'active' : ''}" data-toggle-problem-star="${prob.id}" data-topic-id="${topic.id}" title="Save problem for interview revision">
+                                        🔖
+                                      </button>
+                                    </td>
+
+                                    <!-- Delete Row Action -->
+                                    <td style="text-align: center;">
+                                      <button type="button" class="btn btn-ghost btn-sm text-danger" data-delete-problem="${prob.id}" data-topic-id="${topic.id}" title="Remove problem" style="padding: 2px 6px;">✕</button>
+                                    </td>
+                                  </tr>
+                                `;
+                              }).join('')}
+                            </tbody>
+                          </table>
+
+                          <!-- Inline Quick Add Row -->
+                          <form class="dsa-add-inline-row" data-add-problem-form="${topic.id}">
+                            <span class="text-xs font-semibold text-secondary" style="white-space: nowrap;">+ Quick Add:</span>
+                            <input type="text" class="input-text font-mono" style="flex: 2; min-width: 180px; padding: 6px 10px; font-size: 12px;" placeholder="Problem title (e.g. Subarray Sum Equals K)..." required name="probTitle" />
+                            <select class="select-input" style="flex: 1; min-width: 100px; padding: 6px 8px; font-size: 12px;" name="probDiff">
+                              <option value="Easy">Easy</option>
+                              <option value="Medium" selected>Medium</option>
+                              <option value="Hard">Hard</option>
+                            </select>
+                            <input type="url" class="input-text font-mono" style="flex: 1.5; min-width: 140px; padding: 6px 10px; font-size: 12px;" placeholder="LeetCode / GFG URL..." name="probLink" />
+                            <button type="submit" class="btn btn-primary btn-sm">+ Add Problem</button>
+                          </form>
+                        </div>
+                      ` : ''}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : `
+              <!-- 🎴 Cards View Alternative -->
+              <div class="grid-3">
+                ${filteredTopics.length === 0 ? `
+                  <div class="card text-center py-8" style="grid-column: 1 / -1;">
+                    <div style="font-size:32px;margin-bottom:8px;">🌲</div>
+                    <h3 class="font-bold text-base mb-1">No Matching DSA Topics</h3>
+                    <p class="text-xs text-secondary mb-4">Clear your search query or add a new topic to get started.</p>
+                    <button type="button" class="btn btn-primary btn-sm" data-action="open-modal-dsa">+ Add DSA Topic</button>
+                  </div>
+                ` : filteredTopics.map(topic => {
+                  const totalTopicProblems = (topic.problems || []).length;
+                  const solvedTopicProblems = (topic.problems || []).filter(p => p.status === 'done').length;
+                  const topicPct = totalTopicProblems > 0 ? Math.round((solvedTopicProblems / totalTopicProblems) * 100) : 0;
+                  const isTopicDone = topic.status === 'done' || (totalTopicProblems > 0 && solvedTopicProblems === totalTopicProblems);
+
+                  return `
+                    <div class="card card-hover dsa-card ${isTopicDone ? 'border-success' : ''}">
+                      <div class="dsa-card-top flex justify-between items-center">
+                        <span class="dsa-step-badge">Step ${topic.displayIndex}</span>
+                        <button type="button" class="status-clickable-badge" data-cycle-dsa="${topic.id}" title="Click to cycle status">
+                          <span class="badge ${topic.status === 'done' ? 'badge-low' : topic.status === 'in-progress' ? 'badge-medium' : 'badge-neutral'}">
+                            ${topic.status === 'done' ? '✓ Mastered' : topic.status === 'in-progress' ? '⚡ In Progress' : '○ Not Started'}
+                          </span>
+                        </button>
+                        <button type="button" class="btn btn-ghost btn-sm text-danger dsa-del-btn" data-delete-dsa="${topic.id}" title="Delete topic">✕</button>
+                      </div>
+
+                      <h3 class="font-semibold text-base mt-2">${escapeHtml(topic.name)}</h3>
+                      ${topic.note ? `<p class="text-xs text-secondary mt-1">💡 ${escapeHtml(topic.note)}</p>` : ''}
+
+                      <div class="mt-3">
+                        <div class="flex justify-between items-center text-xs mb-1 font-mono">
+                          <span class="text-muted">Mastery Progress</span>
+                          <span class="font-bold text-low">${solvedTopicProblems} / ${totalTopicProblems} Solved</span>
+                        </div>
+                        <div class="w-full bg-secondary" style="height: 6px; border-radius: 999px; overflow: hidden;">
+                          <div style="height: 100%; width: ${topicPct}%; background: #10b981; border-radius: 999px;"></div>
+                        </div>
+                      </div>
+
+                      <div class="dsa-counter-row mt-3">
+                        <span class="text-xs text-muted font-medium">Problems Solved</span>
+                        <div class="dsa-stepper">
+                          <button type="button" class="dsa-stepper-btn" data-dsa-adj="${topic.id}" data-delta="-1" title="Decrease count">−</button>
+                          <input type="number" class="dsa-stepper-input font-mono" data-dsa-set="${topic.id}" value="${topic.problemsSolved || solvedTopicProblems}" min="0" />
+                          <button type="button" class="dsa-stepper-btn" data-dsa-adj="${topic.id}" data-delta="1" title="Increase count">+</button>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </main>
+
+          <!-- 📱 Right Widgets Column (matching Screenshot 1) -->
+          <aside class="dsa-widgets-column">
+            
+            <!-- Card 1: Total Progress & Difficulty Breakdown -->
+            <div class="dsa-widget-card">
+              <div class="dsa-widget-header">
+                <div class="dsa-rocket-badge">🚀</div>
+                <div>
+                  <h4 class="font-bold text-sm text-primary">Let's get started!</h4>
+                  <p class="text-xs text-secondary" style="font-size: 11px;">Solve your first problem to begin the journey.</p>
+                </div>
+              </div>
+
+              <div class="dsa-progress-circle-wrap">
+                <div class="dsa-svg-circle-container">
+                  <svg class="dsa-progress-svg" viewBox="0 0 100 100">
+                    <circle class="dsa-circle-bg" cx="50" cy="50" r="42" />
+                    <circle class="dsa-circle-bar" cx="50" cy="50" r="42" style="stroke-dashoffset: ${264 - (264 * overallPct / 100)};" />
+                  </svg>
+                  <div class="dsa-circle-inner-text">
+                    <span class="dsa-circle-pct">${overallPct}%</span>
+                    <span class="dsa-circle-fraction">${solvedProblemsCount}/${totalProblemsCount}</span>
+                  </div>
+                </div>
+                <div class="dsa-progress-circle-stats">
+                  <div class="font-bold text-sm text-primary">Total progress</div>
+                  <div class="text-xs text-secondary mt-1">${questionsLeft} questions to go</div>
+                </div>
+              </div>
+
+              <div class="dsa-diff-progress-list">
+                <div class="dsa-diff-row">
+                  <span class="text-xs font-semibold text-low" style="width: 55px;">Easy</span>
+                  <div class="dsa-diff-track"><div class="dsa-diff-bar bg-low" style="width: ${easyPct}%;"></div></div>
+                  <span class="text-xs font-mono text-secondary" style="min-width: 65px; text-align: right;">${easySolved}/${easyProblems.length} ${easyPct}%</span>
+                </div>
+                <div class="dsa-diff-row">
+                  <span class="text-xs font-semibold text-amber" style="width: 55px;">Medium</span>
+                  <div class="dsa-diff-track"><div class="dsa-diff-bar bg-amber" style="width: ${medPct}%;"></div></div>
+                  <span class="text-xs font-mono text-secondary" style="min-width: 65px; text-align: right;">${medSolved}/${medProblems.length} ${medPct}%</span>
+                </div>
+                <div class="dsa-diff-row">
+                  <span class="text-xs font-semibold text-danger" style="width: 55px;">Hard</span>
+                  <div class="dsa-diff-track"><div class="dsa-diff-bar bg-danger" style="width: ${hardPct}%;"></div></div>
+                  <span class="text-xs font-mono text-secondary" style="min-width: 65px; text-align: right;">${hardSolved}/${hardProblems.length} ${hardPct}%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 2: Interactive Calendar Widget (October 2026 from Screenshot 1) -->
+            <div class="dsa-widget-card">
+              <div class="flex justify-between items-center mb-3">
+                <span class="font-bold text-sm text-primary">October 2026</span>
+                <div class="flex items-center gap-1">
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding: 2px 6px;" onclick="showBanner('Previous month archive', 'info')">&lt;</button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding: 2px 6px;" onclick="showBanner('Next month schedule', 'info')">&gt;</button>
+                </div>
+              </div>
+              <div class="dsa-cal-weekdays">
+                <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+              </div>
+              <div class="dsa-cal-days">
+                <!-- October 2026 starts on Thursday -->
+                <span class="dsa-cal-empty"></span>
+                <span class="dsa-cal-empty"></span>
+                <span class="dsa-cal-empty"></span>
+                <span class="dsa-cal-empty"></span>
+                <span class="dsa-cal-day">1</span>
+                <span class="dsa-cal-day">2</span>
+                <span class="dsa-cal-day">3</span>
+                <span class="dsa-cal-day">4</span>
+                <span class="dsa-cal-day">5</span>
+                <span class="dsa-cal-day">6</span>
+                <span class="dsa-cal-day">7</span>
+                <span class="dsa-cal-day">8</span>
+                <span class="dsa-cal-day is-today" title="Today">9</span>
+                <span class="dsa-cal-day">10</span>
+                <span class="dsa-cal-day">11</span>
+                <span class="dsa-cal-day">12</span>
+                <span class="dsa-cal-day">13</span>
+                <span class="dsa-cal-day">14</span>
+                <span class="dsa-cal-day">15</span>
+                <span class="dsa-cal-day">16</span>
+                <span class="dsa-cal-day">17</span>
+                <span class="dsa-cal-day">18</span>
+                <span class="dsa-cal-day">19</span>
+                <span class="dsa-cal-day">20</span>
+                <span class="dsa-cal-day">21</span>
+                <span class="dsa-cal-day">22</span>
+                <span class="dsa-cal-day">23</span>
+                <span class="dsa-cal-day">24</span>
+                <span class="dsa-cal-day">25</span>
+                <span class="dsa-cal-day">26</span>
+                <span class="dsa-cal-day">27</span>
+                <span class="dsa-cal-day">28</span>
+                <span class="dsa-cal-day">29</span>
+                <span class="dsa-cal-day">30</span>
+                <span class="dsa-cal-day">31</span>
+              </div>
+              <div class="text-xs text-secondary text-center mt-3 pt-2" style="border-top: 1px solid rgba(255,255,255,0.06);">
+                🔥 5 Day Streak • Keep practicing daily!
+              </div>
+            </div>
+
+          </aside>
         </div>
       </div>
     `;
@@ -6176,27 +6802,281 @@
       });
     });
 
-    // DSA Topics Interactions
+    // -------------------------------------------------------------------------
+    // Core DSA Sheet Interactions
+    // -------------------------------------------------------------------------
+    // Left sub-nav sheet switcher
+    document.querySelectorAll('[data-sheet-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.getAttribute('data-sheet-tab');
+        if (tab === 'dsa') {
+          dsaUIState.activeSubSheet = 'dsa';
+          dsaUIState.search = '';
+          showBanner('Loaded Core DSA Sheet: 193 Most Important Interview Questions', 'info');
+          render();
+        } else if (tab === 'dp') {
+          dsaUIState.activeSubSheet = 'dp';
+          dsaUIState.search = 'Dynamic Programming';
+          showBanner('Switched to Dynamic Programming & Recursion Sheet', 'info');
+          render();
+        } else if (tab === 'articles') {
+          showBanner('Opening curated DSA Interview Solution Articles & Complexity Guides...', 'info');
+        } else if (tab === 'notes') {
+          showBanner('Opening Downloadable Cheat Sheets & Handwritten Revision Notes...', 'info');
+        }
+      });
+    });
+
+    // Create My Plan Roadmap Button
+    document.querySelectorAll('[data-action="create-dsa-plan"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const unfinishedTopic = state.dsaTopics.find(t => (t.problemsSolved || 0) < (t.problems || []).length) || state.dsaTopics[0];
+        if (unfinishedTopic) {
+          const today = getTodayISO();
+          const existingTask = state.tasks.find(t => t.title.includes(unfinishedTopic.name) && t.scheduledDate === today);
+          if (!existingTask) {
+            state.tasks.push({
+              id: 'task-dsa-' + Date.now(),
+              title: `Practice ${unfinishedTopic.name} (DSA Sheet)`,
+              estimatedMinutes: 60,
+              actualMinutes: 0,
+              priority: 'high',
+              status: 'todo',
+              scheduledDate: today,
+              category: 'coding'
+            });
+            recalculateTimeline();
+            saveState();
+            showBanner(`Personalized plan activated! "${unfinishedTopic.name}" added to today's schedule.`, 'success');
+          } else {
+            showBanner(`Today's DSA roadmap task is already scheduled: "${existingTask.title}". Keep going!`, 'info');
+          }
+        } else {
+          showBanner('Congratulations! You have completed all topics in this DSA Sheet.', 'success');
+        }
+        render();
+      });
+    });
+
+    // Saved Questions Filter Toggle
+    document.querySelectorAll('[data-action="filter-saved"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        dsaUIState.status = dsaUIState.status === 'starred' ? 'all' : 'starred';
+        render();
+      });
+    });
+
+    // Practice Timer Button (30Min)
+    document.querySelectorAll('[data-start-timer]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const probId = btn.getAttribute('data-start-timer');
+        if (dsaUIState.activeTimerProblemId === probId) {
+          dsaUIState.activeTimerProblemId = null;
+          showBanner('⏱️ Practice timer stopped.', 'info');
+        } else {
+          dsaUIState.activeTimerProblemId = probId;
+          showBanner('⏱️ 30-Minute practice timer started! Stay focused and write clean code.', 'success');
+        }
+        render();
+      });
+    });
+
+    const dsaSearchInput = document.getElementById('dsa-search-input');
+    if (dsaSearchInput) {
+      dsaSearchInput.addEventListener('input', (e) => {
+        dsaUIState.search = e.target.value;
+        const mainSlot = document.getElementById('tab-content-slot');
+        if (mainSlot) {
+          mainSlot.innerHTML = renderCurrentTabHtml();
+          attachEventListeners();
+          const restoredInput = document.getElementById('dsa-search-input');
+          if (restoredInput) {
+            restoredInput.focus();
+            restoredInput.setSelectionRange(restoredInput.value.length, restoredInput.value.length);
+          }
+        }
+      });
+    }
+
+    // Filter Chips (Difficulty & Status)
+    document.querySelectorAll('[data-dsa-filter-diff]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const diff = btn.getAttribute('data-dsa-filter-diff');
+        const stat = btn.getAttribute('data-dsa-filter-status');
+        if (diff) dsaUIState.difficulty = diff;
+        if (stat) dsaUIState.status = stat;
+        render();
+      });
+    });
+
+    document.querySelectorAll('[data-dsa-filter-status]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const stat = btn.getAttribute('data-dsa-filter-status');
+        if (stat) {
+          dsaUIState.status = stat;
+          if (stat === 'all') {
+            dsaUIState.difficulty = 'all';
+          }
+          render();
+        }
+      });
+    });
+
+    // Reset Filters Button
+    document.getElementById('btn-dsa-reset-filters')?.addEventListener('click', () => {
+      dsaUIState.search = '';
+      dsaUIState.difficulty = 'all';
+      dsaUIState.status = 'all';
+      render();
+    });
+
+    // View Mode Toggle (Sheet vs Cards)
+    document.querySelectorAll('[data-dsa-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const v = btn.getAttribute('data-dsa-view');
+        if (v && (v === 'sheet' || v === 'cards')) {
+          dsaUIState.view = v;
+          render();
+        }
+      });
+    });
+
+    // Accordion Step Expansion Toggle
+    document.querySelectorAll('[data-toggle-dsa-accordion]').forEach(el => {
+      el.addEventListener('click', () => {
+        const topicId = el.getAttribute('data-toggle-dsa-accordion');
+        if (topicId) {
+          const current = dsaUIState.expandedTopics[topicId] !== false; // default true
+          dsaUIState.expandedTopics[topicId] = !current;
+          render();
+        }
+      });
+    });
+
+    // Problem Status Checkbox / Cycle Button (not-started -> done -> in-progress)
+    document.querySelectorAll('[data-toggle-problem-status]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const probId = btn.getAttribute('data-toggle-problem-status');
+        const topicId = btn.getAttribute('data-topic-id');
+        const topic = state.dsaTopics.find(t => t.id === topicId);
+        if (topic && topic.problems) {
+          const prob = topic.problems.find(p => p.id === probId);
+          if (prob) {
+            const nextStatus = { 'not-started': 'done', 'done': 'in-progress', 'in-progress': 'not-started' };
+            prob.status = nextStatus[prob.status] || 'done';
+            topic.problemsSolved = topic.problems.filter(p => p.status === 'done').length;
+            if (topic.problemsSolved === topic.problems.length && topic.problems.length > 0) {
+              topic.status = 'done';
+            } else if (topic.problemsSolved > 0) {
+              topic.status = 'in-progress';
+            }
+            saveState();
+            render();
+          }
+        }
+      });
+    });
+
+    // Problem Bookmark / Star Toggle
+    document.querySelectorAll('[data-toggle-problem-star]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const probId = btn.getAttribute('data-toggle-problem-star');
+        const topicId = btn.getAttribute('data-topic-id');
+        const topic = state.dsaTopics.find(t => t.id === topicId);
+        if (topic && topic.problems) {
+          const prob = topic.problems.find(p => p.id === probId);
+          if (prob) {
+            prob.starred = !prob.starred;
+            saveState();
+            render();
+          }
+        }
+      });
+    });
+
+    // Inline Add Problem to Topic Form
+    document.querySelectorAll('[data-add-problem-form]').forEach(form => {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const topicId = form.getAttribute('data-add-problem-form');
+        const topic = state.dsaTopics.find(t => t.id === topicId);
+        if (topic) {
+          const title = (form.elements['probTitle']?.value || '').trim();
+          const difficulty = form.elements['probDiff']?.value || 'Medium';
+          const link = (form.elements['probLink']?.value || '').trim();
+          if (!title) return;
+
+          if (!topic.problems) topic.problems = [];
+          topic.problems.push({
+            id: 'p-custom-' + Date.now(),
+            title,
+            difficulty,
+            status: 'not-started',
+            starred: false,
+            link: link || '',
+            note: 'Custom added problem'
+          });
+          topic.problemsSolved = topic.problems.filter(p => p.status === 'done').length;
+          saveState();
+          showBanner(`Added "${title}" to ${topic.name}!`, 'success');
+          render();
+        }
+      });
+    });
+
+    // Delete Problem from Topic
+    document.querySelectorAll('[data-delete-problem]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const probId = btn.getAttribute('data-delete-problem');
+        const topicId = btn.getAttribute('data-topic-id');
+        const topic = state.dsaTopics.find(t => t.id === topicId);
+        if (topic && topic.problems) {
+          topic.problems = topic.problems.filter(p => p.id !== probId);
+          topic.problemsSolved = topic.problems.filter(p => p.status === 'done').length;
+          saveState();
+          showBanner('Problem removed from sheet', 'info');
+          render();
+        }
+      });
+    });
+
+    // Topic status cycle badge
     document.querySelectorAll('[data-cycle-dsa]').forEach(b => {
-      b.addEventListener('click', () => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = b.getAttribute('data-cycle-dsa');
         const t = state.dsaTopics.find(x => x.id === id);
         if (t) {
           const cyc = { 'not-started': 'in-progress', 'in-progress': 'done', 'done': 'not-started' };
           t.status = cyc[t.status] || 'not-started';
+          if (t.status === 'done' && t.problems && t.problems.length > 0) {
+            t.problems.forEach(p => p.status = 'done');
+            t.problemsSolved = t.problems.length;
+          } else if (t.status === 'not-started' && t.problems && t.problems.length > 0) {
+            t.problems.forEach(p => p.status = 'not-started');
+            t.problemsSolved = 0;
+          }
           saveState();
           render();
         }
       });
     });
 
+    // Topic stepper buttons (- and +)
     document.querySelectorAll('[data-dsa-adj]').forEach(b => {
-      b.addEventListener('click', () => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = b.getAttribute('data-dsa-adj');
         const delta = Number(b.getAttribute('data-delta'));
         const t = state.dsaTopics.find(x => x.id === id);
         if (t) {
-          t.problemsSolved = Math.max(0, (t.problemsSolved || 0) + delta);
+          const current = t.problemsSolved || (t.problems ? t.problems.filter(p => p.status === 'done').length : 0);
+          const nextVal = Math.max(0, current + delta);
+          t.problemsSolved = nextVal;
           saveState();
           render();
         }
@@ -6226,8 +7106,10 @@
       });
     });
 
+    // Delete entire Topic
     document.querySelectorAll('[data-delete-dsa]').forEach(b => {
-      b.addEventListener('click', () => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = b.getAttribute('data-delete-dsa');
         state.dsaTopics = state.dsaTopics.filter(x => x.id !== id);
         saveState();

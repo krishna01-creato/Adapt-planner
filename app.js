@@ -2842,15 +2842,40 @@
   // -------------------------------------------------------------------------
   let selectedWeeklyDate = getTodayISO();
 
+  function getDailyTaskProgress(dateIso, tasks = state.tasks, studySessions = state.studySessions) {
+    const dayTasks = tasks.filter(t => t.deadline === dateIso);
+    const completedCount = dayTasks.filter(t => t.status === 'completed').length;
+    const studiedTaskIds = new Set(studySessions.filter(s => s.taskId).map(s => s.taskId));
+    const startedCount = dayTasks.filter(t => {
+      if (t.status === 'completed') return false;
+      const hasPartialTime = t.remaining != null && t.duration != null && Number(t.remaining) < Number(t.duration);
+      return hasPartialTime || studiedTaskIds.has(t.id);
+    }).length;
+
+    let status = 'none';
+    if (dayTasks.length > 0) {
+      if (completedCount === dayTasks.length) status = 'done';
+      else if (completedCount > 0 || startedCount > 0) status = 'in-progress';
+      else status = 'not-started';
+    }
+
+    return { status, taskCount: dayTasks.length, completedCount, startedCount };
+  }
+
   function renderWeeklyHtml() {
     const { dayStats, capacityHours, plannedHours, bufferHours, studiedHours } = getWeeklyCapacityStats(state.fixedEvents, state.tasks, state.studySessions);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    const curStat = dayStats.find(d => d.dateIso === selectedWeeklyDate) || dayStats[0];
-    const wday = curStat.weekday;
+    const wday = getDayOfWeek(selectedWeeklyDate);
     const dayFixed = state.fixedEvents.filter(ev => Array.isArray(ev.days) && ev.days.includes(wday));
     const dayTasks = state.tasks.filter(t => t.deadline === selectedWeeklyDate);
     const daySessions = state.studySessions.filter(s => s.date === selectedWeeklyDate);
+    const dayProgress = getDailyTaskProgress(selectedWeeklyDate);
+    const progressSummary = dayProgress.status === 'none'
+      ? 'No tasks planned.'
+      : dayProgress.status === 'done'
+        ? `All ${dayProgress.taskCount} tasks completed.`
+        : `${dayProgress.completedCount} of ${dayProgress.taskCount} tasks completed${dayProgress.startedCount ? ` · ${dayProgress.startedCount} in progress` : ''}.`;
 
     return `
       <div class="weekly-page animate-fade-in">
@@ -2887,6 +2912,10 @@
 
         <div class="card">
           <h3 class="font-semibold text-base mb-3">Details for ${formatDateDisplay(selectedWeeklyDate)}</h3>
+          <div class="card mb-3" style="border-color:${dayProgress.status === 'done' ? '#10b981' : dayProgress.status === 'in-progress' ? '#f59e0b' : dayProgress.status === 'not-started' ? '#ef4444' : 'var(--border-card)'};">
+            <span class="label-title">Daily progress</span>
+            <p class="text-sm">${progressSummary}</p>
+          </div>
           <div class="grid-3">
             <div class="card">
               <span class="label-title">Scheduled Events (${dayFixed.length})</span>
@@ -3195,15 +3224,7 @@
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
     
-    // Build task map for all dates
-    const tasksByDate = {};
-    state.tasks.forEach(t => {
-      if (t.deadline) {
-        if (!tasksByDate[t.deadline]) tasksByDate[t.deadline] = [];
-        tasksByDate[t.deadline].push(t);
-      }
-    });
-    
+
     // Calendar navigation (1st of prev month, 1st of next month)
     const prevMonthDate = new Date(year, month - 1, 1);
     const nextMonthDate = new Date(year, month + 1, 1);
@@ -3219,16 +3240,11 @@
       const pYear = prevMonthDate.getFullYear();
       const pMonth = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
       const dateISO = `${pYear}-${pMonth}-${String(d).padStart(2, '0')}`;
-      const dayTasks = tasksByDate[dateISO] || [];
-      const hasTasks = dayTasks.length > 0;
-      const allDone = hasTasks && dayTasks.every(t => t.status === 'completed');
-      const hasOverdue = hasTasks && dayTasks.some(t => t.status !== 'completed' && dateISO < today);
+      const progress = getDailyTaskProgress(dateISO);
       const isSelected = dateISO === viewDate;
-
-      let taskClass = '';
-      if (allDone) taskClass = 'cal-cell-done';
-      else if (hasOverdue) taskClass = 'cal-cell-overdue';
-      else if (hasTasks) taskClass = 'cal-cell-pending';
+      const taskClass = progress.status === 'done' ? 'cal-cell-done'
+        : progress.status === 'in-progress' ? 'cal-cell-pending'
+          : progress.status === 'not-started' ? 'cal-cell-overdue' : '';
 
       cellsHtml += `
         <button class="cal-cell cal-cell-adjacent ${isSelected ? 'cal-cell-selected' : ''} ${taskClass}" 
@@ -3243,20 +3259,17 @@
       const dateISO = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const isToday = dateISO === today;
       const isSelected = dateISO === viewDate;
-      const dayTasks = tasksByDate[dateISO] || [];
-      const hasTasks = dayTasks.length > 0;
-      const allDone = hasTasks && dayTasks.every(t => t.status === 'completed');
-      const hasOverdue = hasTasks && dayTasks.some(t => t.status !== 'completed' && dateISO < today);
-      
-      let taskClass = '';
-      if (allDone) taskClass = 'cal-cell-done';
-      else if (hasOverdue) taskClass = 'cal-cell-overdue';
-      else if (hasTasks) taskClass = 'cal-cell-pending';
-      else taskClass = 'cal-cell-current';
+      const progress = getDailyTaskProgress(dateISO);
+      const taskClass = progress.status === 'done' ? 'cal-cell-done'
+        : progress.status === 'in-progress' ? 'cal-cell-pending'
+          : progress.status === 'not-started' ? 'cal-cell-overdue' : 'cal-cell-current';
+      const progressLabel = progress.status === 'done' ? 'All tasks completed'
+        : progress.status === 'in-progress' ? 'Work started'
+          : progress.status === 'not-started' ? 'Not started' : 'No tasks';
 
       cellsHtml += `
         <button class="cal-cell ${taskClass} ${isToday ? 'cal-cell-today' : ''} ${isSelected ? 'cal-cell-selected' : ''}" 
-          data-cal-date="${dateISO}" title="${d} ${monthNames[month]} ${year}${hasTasks ? ` — ${dayTasks.length} task(s)` : ''}">
+          data-cal-date="${dateISO}" title="${d} ${monthNames[month]} ${year} — ${progressLabel}" aria-label="${d} ${monthNames[month]} ${year}: ${progressLabel}">
           <span class="cal-date-num">${d}</span>
         </button>
       `;
@@ -3270,16 +3283,11 @@
       const nYear = nextMonthDate.getFullYear();
       const nMonth = String(nextMonthDate.getMonth() + 1).padStart(2, '0');
       const dateISO = `${nYear}-${nMonth}-${String(d).padStart(2, '0')}`;
-      const dayTasks = tasksByDate[dateISO] || [];
-      const hasTasks = dayTasks.length > 0;
-      const allDone = hasTasks && dayTasks.every(t => t.status === 'completed');
-      const hasOverdue = hasTasks && dayTasks.some(t => t.status !== 'completed' && dateISO < today);
+      const progress = getDailyTaskProgress(dateISO);
       const isSelected = dateISO === viewDate;
-
-      let taskClass = '';
-      if (allDone) taskClass = 'cal-cell-done';
-      else if (hasOverdue) taskClass = 'cal-cell-overdue';
-      else if (hasTasks) taskClass = 'cal-cell-pending';
+      const taskClass = progress.status === 'done' ? 'cal-cell-done'
+        : progress.status === 'in-progress' ? 'cal-cell-pending'
+          : progress.status === 'not-started' ? 'cal-cell-overdue' : '';
 
       cellsHtml += `
         <button class="cal-cell cal-cell-adjacent ${isSelected ? 'cal-cell-selected' : ''} ${taskClass}" 
@@ -3319,47 +3327,15 @@
         <div class="cal-grid">
           ${cellsHtml}
         </div>
-        ${state._calendarSelectedTasks ? renderCalendarTaskListHtml() : ''}
-      </div>
-    `;
-  }
-
-  function renderCalendarTaskListHtml() {
-    const dateISO = state.viewDate || getTodayISO();
-    const dayTasks = state.tasks.filter(t => t.deadline === dateISO);
-    
-    return `
-      <div class="cal-task-list">
-        <div class="cal-task-header">
-          <span class="cal-task-header-title">Tasks for ${formatDateDisplay(dateISO)}</span>
-          <span class="cal-task-count-badge font-mono">${dayTasks.length}</span>
+        <div class="flex flex-wrap gap-2 mt-3 text-xs text-secondary" aria-label="Daily progress legend">
+          <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:5px;"></i>All complete</span>
+          <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:5px;"></i>In progress</span>
+          <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:5px;"></i>Not started</span>
         </div>
-        ${dayTasks.length === 0 ? `
-          <div class="cal-task-empty">
-            <p class="text-xs text-secondary">No study tasks due on this date.</p>
-            <button class="btn btn-xs btn-primary mt-2" data-action="open-modal-task" data-preset-date="${dateISO}">+ Add Task for this Day</button>
-          </div>
-        ` : `
-          <div class="cal-task-items">
-            ${dayTasks.map(t => {
-              const col = getCategoryColor(state.categories, t.category);
-              const isDone = t.status === 'completed';
-              return `
-                <div class="cal-task-item ${isDone ? 'cal-task-done' : ''}">
-                  <input type="checkbox" class="task-checkbox" data-task-complete="${t.id}" ${isDone ? 'checked' : ''} />
-                  <span class="cal-task-dot" style="background:${col};"></span>
-                  <span class="cal-task-title ${isDone ? 'line-through text-muted' : ''}">${escapeHtml(t.title)}</span>
-                  <span class="text-xs font-mono text-muted">${t.remaining || 0}m</span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `}
       </div>
     `;
   }
 
-  
   // -------------------------------------------------------------------------
   // DRAG AND DROP HANDLERS
   // -------------------------------------------------------------------------
@@ -5430,8 +5406,8 @@
       btn.addEventListener('click', () => {
         const d = btn.getAttribute('data-cal-date');
         state.viewDate = d;
-        state._calendarSelectedTasks = true;
-        recalculateTimeline(d);
+        selectedWeeklyDate = d;
+        state.activeTab = 'weekly';
         render();
       });
     });

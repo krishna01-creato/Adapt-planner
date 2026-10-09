@@ -2882,9 +2882,10 @@
                   <span class="text-secondary">${stat.dateIso.slice(5)}</span>
                 </div>
                 <div class="mt-2 font-mono font-bold text-base text-amber">
-                  ${formatDuration(stat.studiedMin || stat.dueMin)}
+                  ${formatDuration(stat.studiedMin)} <span class="text-xs font-normal text-secondary">studied</span>
                 </div>
-                <div class="text-xs text-muted font-mono mt-1">Cap: ${formatDuration(stat.dailyCap)}</div>
+                <div class="text-xs text-secondary font-mono mt-1">Tasks due: ${formatDuration(stat.dueMin)}</div>
+                <div class="text-xs text-muted font-mono mt-1">Estimated study time available: ${formatDuration(stat.dailyCap)}</div>
               </button>
             `).join('')}
           </div>
@@ -2894,7 +2895,7 @@
           <h3 class="font-semibold text-base mb-3">Details for ${formatDateDisplay(selectedWeeklyDate)}</h3>
           <div class="grid-3">
             <div class="card">
-              <span class="label-title">Fixed Lectures (${dayFixed.length})</span>
+              <span class="label-title">Scheduled Events (${dayFixed.length})</span>
               ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${f.title}</strong> <span class="font-mono text-muted">(${f.start}-${f.end})</span></div>`).join('')}
             </div>
             <div class="card">
@@ -2902,7 +2903,7 @@
               ${dayTasks.map(t => `<div class="text-xs py-1 ${t.status === 'completed' ? 'line-through text-muted' : ''}"><strong>${t.title}</strong> (${t.remaining}m)</div>`).join('')}
             </div>
             <div class="card">
-              <span class="label-title">Logged Sessions (${daySessions.length})</span>
+              <span class="label-title">Study Sessions Logged (${daySessions.length})</span>
               ${daySessions.map(s => `<div class="text-xs py-1"><strong>${s.taskTitle}</strong> <span class="font-mono text-accent">(${s.actualMin}m)</span></div>`).join('')}
             </div>
           </div>

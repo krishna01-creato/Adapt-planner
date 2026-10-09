@@ -2885,7 +2885,7 @@
                   ${formatDuration(stat.studiedMin)} <span class="text-xs font-normal text-secondary">studied</span>
                 </div>
                 <div class="text-xs text-secondary font-mono mt-1">Tasks due: ${formatDuration(stat.dueMin)}</div>
-                <div class="text-xs text-muted font-mono mt-1">Estimated study time available: ${formatDuration(stat.dailyCap)}</div>
+                <div class="text-xs text-muted font-mono mt-1">Planned time: ${formatDuration(stat.dailyCap)}</div>
               </button>
             `).join('')}
           </div>

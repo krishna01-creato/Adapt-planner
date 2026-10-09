@@ -242,6 +242,7 @@
     gapUtilization: 0.82,
     breakDurationMin: 10,
     breakThresholdMin: 45,
+    timeFormat: '12h',
   };
 
   // =========================================================================
@@ -268,6 +269,230 @@
     const period = h24 >= 12 ? 'PM' : 'AM';
     const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
     return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+  }
+
+  function getTimeFormat() {
+    return (typeof state !== 'undefined' && state && state.scheduleConfig && state.scheduleConfig.timeFormat) ||
+           (typeof state !== 'undefined' && state && state.timeFormat) ||
+           '12h';
+  }
+
+  function formatDisplayTime(timeVal, format = getTimeFormat()) {
+    if (timeVal == null || timeVal === '') return '';
+    const totalMin = typeof timeVal === 'number' ? timeVal : parseTimeToMinutes(timeVal);
+    if (isNaN(totalMin)) return '';
+    if (format === '24h') {
+      return minutesToTime(totalMin);
+    }
+    return formatTime12(totalMin);
+  }
+
+  function convert24hTo12hParts(time24) {
+    if (!time24 || typeof time24 !== 'string') return { displayTime: '', period: 'AM' };
+    const totalMin = parseTimeToMinutes(time24);
+    const roundedMin = Math.round(totalMin);
+    const h24 = Math.floor(roundedMin / 60) % 24;
+    const m = roundedMin % 60;
+    const period = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return { displayTime: `${h12}:${String(m).padStart(2, '0')}`, period };
+  }
+
+  function parse12hTo24h(timeStr, period = 'AM') {
+    if (!timeStr || typeof timeStr !== 'string') return '';
+    let str = timeStr.trim();
+    if (!str) return '';
+    const ampmMatch = str.match(/([ap]\.?m\.?)/i);
+    if (ampmMatch) {
+      period = ampmMatch[1].toUpperCase().includes('P') ? 'PM' : 'AM';
+      str = str.replace(ampmMatch[0], '').trim();
+    }
+    const parts = str.split(':');
+    if (parts.length === 0) return '';
+    let h = parseInt(parts[0], 10);
+    if (isNaN(h)) return '';
+    let m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    if (isNaN(m)) m = 0;
+    m = Math.max(0, Math.min(59, m));
+
+    if (h >= 13 && h <= 23) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+    if (h === 0) {
+      return `00:${String(m).padStart(2, '0')}`;
+    }
+    h = Math.max(1, Math.min(12, h));
+    let h24 = h;
+    if (period.toUpperCase() === 'PM') {
+      h24 = (h === 12) ? 12 : h + 12;
+    } else {
+      h24 = (h === 12) ? 0 : h;
+    }
+    return `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function normalize24hString(timeStr) {
+    if (!timeStr || typeof timeStr !== 'string') return '';
+    const str = timeStr.trim();
+    const parts = str.split(':');
+    if (parts.length < 2) return '';
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return '';
+    if (h < 0 || h > 23 || m < 0 || m > 59) return '';
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function renderTimeInput(id, value24 = '', options = {}) {
+    const is24 = getTimeFormat() === '24h';
+    const compact = !!options.compact;
+    const allowEmpty = !!options.allowEmpty;
+    const clean24 = (value24 && typeof value24 === 'string') ? value24.trim() : '';
+    const { displayTime, period } = convert24hTo12hParts(clean24);
+    const displayValue = clean24 ? (is24 ? clean24 : displayTime) : '';
+    const datalistId = is24 ? 'adapt-time-datalist-24h' : 'adapt-time-datalist-12h';
+    const placeholder = options.placeholder || (is24 ? 'HH:MM' : 'e.g. 9:00');
+
+    return `
+      <div class="time-picker-wrap ${compact ? 'time-picker-compact' : ''}" data-time-id="${id}">
+        <input type="text"
+               class="input-text font-mono time-picker-time"
+               id="${id}-display"
+               value="${displayValue}"
+               placeholder="${placeholder}"
+               list="${datalistId}"
+               autocomplete="off"
+               aria-label="${options.label || id}" />
+        ${!is24 ? `
+          <select class="select-input font-mono time-picker-period" id="${id}-ampm" aria-label="Select AM or PM">
+            <option value="AM" ${period === 'AM' ? 'selected' : ''}>AM</option>
+            <option value="PM" ${period === 'PM' ? 'selected' : ''}>PM</option>
+          </select>
+        ` : ''}
+        ${allowEmpty ? `
+          <button type="button" class="time-picker-clear" id="${id}-clear" title="Clear time" aria-label="Clear time">✕</button>
+        ` : ''}
+        <input type="hidden" id="${id}" value="${clean24}" />
+      </div>
+    `;
+  }
+
+  function initTimeInputs(container = document) {
+    if (!container) return;
+    const wraps = container.querySelectorAll('.time-picker-wrap');
+    const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+
+    wraps.forEach(wrap => {
+      const id = wrap.getAttribute('data-time-id');
+      if (!id) return;
+      const hiddenInp = document.getElementById(id);
+      if (!hiddenInp) return;
+
+      const timeInp = wrap.querySelector('.time-picker-time');
+      const periodSel = wrap.querySelector('.time-picker-period');
+      const clearBtn = wrap.querySelector('.time-picker-clear');
+
+      const is24 = getTimeFormat() === '24h';
+
+      if (hiddenInp._val === undefined) {
+        hiddenInp._val = hiddenInp.getAttribute('value') || '';
+      }
+
+      function updateHiddenFromUI() {
+        const textVal = timeInp ? timeInp.value.trim() : '';
+        if (!textVal) {
+          setHiddenValue('');
+          return;
+        }
+
+        let new24 = '';
+        if (is24) {
+          new24 = normalize24hString(textVal) || (textVal.includes(':') ? textVal : '');
+        } else {
+          const ampmMatch = textVal.match(/([ap]\.?m\.?)/i);
+          let currentPeriod = periodSel ? periodSel.value : 'AM';
+          if (ampmMatch) {
+            currentPeriod = ampmMatch[1].toUpperCase().includes('P') ? 'PM' : 'AM';
+            if (periodSel) periodSel.value = currentPeriod;
+          }
+          new24 = parse12hTo24h(textVal, currentPeriod);
+        }
+
+        setHiddenValue(new24);
+      }
+
+      function setHiddenValue(new24) {
+        if (hiddenInp._val === new24) return;
+        hiddenInp._val = new24;
+        if (nativeDesc && nativeDesc.set) {
+          nativeDesc.set.call(hiddenInp, new24);
+        } else {
+          hiddenInp.setAttribute('value', new24);
+        }
+        hiddenInp.dispatchEvent(new Event('input', { bubbles: true }));
+        hiddenInp.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      function syncUIFromValue(val24) {
+        hiddenInp._val = val24;
+        if (nativeDesc && nativeDesc.set) {
+          nativeDesc.set.call(hiddenInp, val24);
+        }
+        if (!val24) {
+          if (timeInp) timeInp.value = '';
+          return;
+        }
+        if (is24) {
+          if (timeInp) timeInp.value = val24;
+        } else {
+          const { displayTime, period } = convert24hTo12hParts(val24);
+          if (timeInp) timeInp.value = displayTime;
+          if (periodSel) periodSel.value = period;
+        }
+      }
+
+      if (!hiddenInp._timeHooked) {
+        hiddenInp._timeHooked = true;
+        Object.defineProperty(hiddenInp, 'value', {
+          get() {
+            return hiddenInp._val !== undefined ? hiddenInp._val : (nativeDesc ? nativeDesc.get.call(hiddenInp) : '');
+          },
+          set(newV) {
+            syncUIFromValue(String(newV || '').trim());
+          },
+          configurable: true
+        });
+      }
+
+      if (timeInp && !timeInp._bound) {
+        timeInp._bound = true;
+        timeInp.addEventListener('input', updateHiddenFromUI);
+        timeInp.addEventListener('change', () => {
+          updateHiddenFromUI();
+          if (hiddenInp.value) {
+            if (!is24) {
+              const { displayTime } = convert24hTo12hParts(hiddenInp.value);
+              timeInp.value = displayTime;
+            } else {
+              timeInp.value = hiddenInp.value;
+            }
+          }
+        });
+      }
+
+      if (periodSel && !periodSel._bound) {
+        periodSel._bound = true;
+        periodSel.addEventListener('change', updateHiddenFromUI);
+      }
+
+      if (clearBtn && !clearBtn._bound) {
+        clearBtn._bound = true;
+        clearBtn.addEventListener('click', () => {
+          if (timeInp) timeInp.value = '';
+          setHiddenValue('');
+        });
+      }
+    });
   }
 
   function getTodayISO() {
@@ -655,6 +880,26 @@
       }
     }
 
+    // 5b. Start time matching (e.g. 'at 9:00am', 'at 2:30 pm', 'at 14:00', 'at 9am', 'at 12pm', 'at 12:00 am')
+    let startTime = '';
+    const timeMatch = working.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||
+                      working.match(/\bat\s+(\d{1,2}):(\d{2})\b/i);
+    if (timeMatch) {
+      const hStr = timeMatch[1];
+      const mStr = timeMatch[2] || '00';
+      const period = timeMatch[3] ? timeMatch[3].toUpperCase() : '';
+      if (period) {
+        startTime = parse12hTo24h(`${hStr}:${mStr}`, period);
+      } else {
+        const h = parseInt(hStr, 10);
+        const m = parseInt(mStr, 10);
+        if (h >= 0 && h < 24 && m >= 0 && m < 60) {
+          startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+      }
+      working = working.replace(timeMatch[0], ' ');
+    }
+
     // 6. Clean trailing prepositions & extra spaces from title
     working = working.replace(/\b(?:by|on|due|before|until|at|for|in|with)\s*$/i, '');
     working = working.replace(/\s+/g, ' ').trim();
@@ -665,6 +910,7 @@
       deadline: deadline || todayIso,
       priority: priority || 'Medium',
       categoryId: categoryId || categories[0]?.id || 'cat-dsa',
+      startTime,
     };
   }
 
@@ -807,13 +1053,13 @@
         return (a.createdAt || '').localeCompare(b.createdAt || '');
       });
 
-    // 4. Extract Anchored Tasks (explicit startTime set, e.g. 09:35)
+    // 4. Extract Anchored Tasks (explicit startTime set, e.g. 09:35, 00:00)
     const anchoredTasks = [];
     const flexibleTasks = [];
     for (const t of taskPool) {
-      if (t.startTime) {
+      if (t.startTime && typeof t.startTime === 'string' && t.startTime.trim() !== '') {
         const sMin = parseTimeToMinutes(t.startTime);
-        if (sMin > 0) {
+        if (!isNaN(sMin) && sMin >= 0 && sMin < 1440) {
           anchoredTasks.push({ ...t, explicitStartMin: sMin });
           continue;
         }
@@ -1091,8 +1337,8 @@
       return {
         ...block,
         status,
-        startTimeStr: minutesToTime(block.startMin),
-        endTimeStr: minutesToTime(block.endMin),
+        startTimeStr: formatDisplayTime(block.startMin),
+        endTimeStr: formatDisplayTime(block.endMin),
       };
     });
   }
@@ -1166,7 +1412,7 @@
               id: `${b.id}-resumed`,
               duration: remDuration,
             });
-            parts.push(`Study on "${b.title}" resumes right after lost time at ${formatTime12(lostEndMin)} for ${remDuration}m.`);
+            parts.push(`Study on "${b.title}" resumes right after lost time at ${formatDisplayTime(lostEndMin)} for ${remDuration}m.`);
           } else {
             // Task was scheduled during or overlapping lost time:
             // It MUST NOT be sliced or reduced! It resumes right after lost time with full duration:
@@ -1176,7 +1422,7 @@
               ...b,
               duration: userDuration,
             });
-            parts.push(`Study on "${b.title}" starts right after lost time at ${formatTime12(lostEndMin)} for ${userDuration}m.`);
+            parts.push(`Study on "${b.title}" starts right after lost time at ${formatDisplayTime(lostEndMin)} for ${userDuration}m.`);
           }
           if (b.priority === 'Critical' || b.priority === 'High') {
             affectedCriticalOrHigh = true;
@@ -1210,8 +1456,8 @@
         startMin: taskStart,
         endMin: taskEnd,
         duration: rTask.duration,
-        startTimeStr: minutesToTime(taskStart),
-        endTimeStr: minutesToTime(taskEnd),
+        startTimeStr: formatDisplayTime(taskStart),
+        endTimeStr: formatDisplayTime(taskEnd),
       });
       curPtr = taskEnd;
 
@@ -1232,8 +1478,8 @@
         startMin: newStart,
         endMin: newEnd,
         duration: b.duration,
-        startTimeStr: minutesToTime(newStart),
-        endTimeStr: minutesToTime(newEnd),
+        startTimeStr: formatDisplayTime(newStart),
+        endTimeStr: formatDisplayTime(newEnd),
       });
       curPtr = newEnd;
 
@@ -1303,15 +1549,15 @@
       return {
         ...block,
         status,
-        startTimeStr: minutesToTime(block.startMin),
-        endTimeStr: minutesToTime(block.endMin),
+        startTimeStr: formatDisplayTime(block.startMin),
+        endTimeStr: formatDisplayTime(block.endMin),
       };
     });
 
     return {
       updatedTimeline: finalTimeline,
       updatedTasks: Array.from(taskMap.values()),
-      explanation: parts.join(' ') || `Schedule replanned: study resumed at ${formatTime12(lostEndMin)}.`,
+      explanation: parts.join(' ') || `Schedule replanned: study resumed at ${formatDisplayTime(lostEndMin)}.`,
       affectedCriticalOrHigh,
       trimmedTasks,
       postponedTasks,
@@ -1806,9 +2052,14 @@
           const collegeSubjects = Array.isArray(parsed.collegeSubjects) ? parsed.collegeSubjects : seed.collegeSubjects;
           const lostTimeEvents = Array.isArray(parsed.lostTimeEvents) ? parsed.lostTimeEvents : seed.lostTimeEvents;
 
+          const scheduleConfig = parsed.scheduleConfig ? { ...DEFAULT_SCHEDULE_CONFIG, ...parsed.scheduleConfig } : { ...DEFAULT_SCHEDULE_CONFIG };
+          const timeFormat = parsed.timeFormat || scheduleConfig.timeFormat || '12h';
+          scheduleConfig.timeFormat = timeFormat;
+
           return {
             user: parsed.user || null,
             theme: parsed.theme === 'light' ? 'light' : 'dark',
+            timeFormat,
             categories,
             tasks,
             fixedEvents,
@@ -1817,50 +2068,52 @@
             lostTimeEvents,
             studySessions,
             dailyNotes: parsed.dailyNotes || seed.dailyNotes,
-            scheduleConfig: parsed.scheduleConfig ? { ...DEFAULT_SCHEDULE_CONFIG, ...parsed.scheduleConfig } : { ...DEFAULT_SCHEDULE_CONFIG },
+            scheduleConfig,
           };
         }
       }
     } catch (e) {
-      console.warn('Fallback to seed data:', e);
+        console.warn('Fallback to seed data:', e);
+      }
+      return { ...seed, timeFormat: '12h', scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG, timeFormat: '12h' } };
     }
-    return { ...seed, scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG } };
-  }
 
-  const state = {
-    ...loadState(),
-    activeTab: 'dashboard',
-    activeModal: null, // { name, data }
-    banner: null, // { text, type }
-    focus: null, // { taskId, title, category, plannedSec, accumulatedSec, isRunning }
-    timeline: [],
-    timelineView: 'agenda', // 'agenda' (default, non-overlapping) or 'grid' (hour scale)
-    currentTime: new Date(),
-    viewDate: getTodayISO(), // Date being viewed/planned (defaults to Today)
-  };
+    const state = {
+      ...loadState(),
+      activeTab: 'dashboard',
+      activeModal: null, // { name, data }
+      banner: null, // { text, type }
+      focus: null, // { taskId, title, category, plannedSec, accumulatedSec, isRunning }
+      timeline: [],
+      timelineView: 'agenda', // 'agenda' (default, non-overlapping) or 'grid' (hour scale)
+      currentTime: new Date(),
+      viewDate: getTodayISO(), // Date being viewed/planned (defaults to Today)
+    };
 
-  // Ensure scheduleConfig always exists
-  if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+    // Ensure scheduleConfig always exists
+    if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+    if (!state.scheduleConfig.timeFormat) state.scheduleConfig.timeFormat = state.timeFormat || '12h';
 
-  function saveState() {
-    const session = getAuthSession();
-    if (!session) return;
-    const storageKey = getStorageKey(session.userId);
-    try {
-      const payload = {
-        tasks: state.tasks,
-        fixedEvents: state.fixedEvents,
-        categories: state.categories,
-        dsaTopics: state.dsaTopics,
-        collegeSubjects: state.collegeSubjects,
-        lostTimeEvents: state.lostTimeEvents,
-        studySessions: state.studySessions,
-        dailyNotes: state.dailyNotes,
-        theme: state.theme,
-        timelineView: state.timelineView,
-        scheduleConfig: state.scheduleConfig,
-      };
-      localStorage.setItem(storageKey, JSON.stringify(payload));
+    function saveState() {
+      const session = getAuthSession();
+      if (!session) return;
+      const storageKey = getStorageKey(session.userId);
+      try {
+        const payload = {
+          tasks: state.tasks,
+          fixedEvents: state.fixedEvents,
+          categories: state.categories,
+          dsaTopics: state.dsaTopics,
+          collegeSubjects: state.collegeSubjects,
+          lostTimeEvents: state.lostTimeEvents,
+          studySessions: state.studySessions,
+          dailyNotes: state.dailyNotes,
+          theme: state.theme,
+          timeFormat: getTimeFormat(),
+          timelineView: state.timelineView,
+          scheduleConfig: { ...state.scheduleConfig, timeFormat: getTimeFormat() },
+        };
+        localStorage.setItem(storageKey, JSON.stringify(payload));
     } catch (err) {
       console.error('LocalStorage write error:', err);
     }
@@ -2401,7 +2654,7 @@
     const streak = calculateStreak(state.studySessions, today);
     const overdue = getOverdueTasksCount(state.tasks, today);
     const curMin = getCurrentTimeMinutes(state.currentTime);
-    const timeStr = formatTime12(curMin);
+    const timeStr = formatDisplayTime(curMin);
     const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][state.currentTime.getDay()];
 
     const tabs = [
@@ -2739,18 +2992,18 @@
           <div class="schedule-routine-bar">
             <div class="flex items-center gap-2 flex-wrap text-xs">
               <span class="text-secondary font-medium">🌅 Day Starts:</span>
-              <input type="time" class="input-text font-mono quick-day-start-input" id="quick-day-start" value="${sc.dayStart || '08:00'}" />
-              <button class="btn btn-secondary btn-sm" id="btn-start-day-now" style="padding:3px 8px;font-size:11px;" title="Set schedule to start at current time">⚡ Start Now (${formatTime12(getCurrentTimeMinutes(state.currentTime))})</button>
+              ${renderTimeInput('quick-day-start', sc.dayStart || '08:00', { compact: true })}
+              <button class="btn btn-secondary btn-sm" id="btn-start-day-now" style="padding:3px 8px;font-size:11px;" title="Set schedule to start at current time">⚡ Start Now (${formatDisplayTime(getCurrentTimeMinutes(state.currentTime))})</button>
             </div>
             <div class="flex items-center gap-2 text-xs flex-wrap">
               <button class="routine-chip-btn" data-action="open-modal-routine" data-focus-meal="breakfast" title="Click to customize breakfast time & duration">
-                🍳 Breakfast: <strong>${sc.breakfastStart || '08:30'}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.breakfastEnd) - parseTimeToMinutes(sc.breakfastStart)) || sc.breakfastDuration || 30}m)</span>
+                🍳 Breakfast: <strong>${formatDisplayTime(sc.breakfastStart || '08:30')}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.breakfastEnd) - parseTimeToMinutes(sc.breakfastStart)) || sc.breakfastDuration || 30}m)</span>
               </button>
               <button class="routine-chip-btn" data-action="open-modal-routine" data-focus-meal="lunch" title="Click to customize lunch time & duration">
-                🍱 Lunch: <strong>${sc.lunchStart || '13:00'}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.lunchEnd) - parseTimeToMinutes(sc.lunchStart)) || sc.lunchDuration || 45}m)</span>
+                🍱 Lunch: <strong>${formatDisplayTime(sc.lunchStart || '13:00')}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.lunchEnd) - parseTimeToMinutes(sc.lunchStart)) || sc.lunchDuration || 45}m)</span>
               </button>
               <button class="routine-chip-btn" data-action="open-modal-routine" data-focus-meal="dinner" title="Click to customize dinner time & duration">
-                🍽️ Dinner: <strong>${sc.dinnerStart || '20:00'}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.dinnerEnd) - parseTimeToMinutes(sc.dinnerStart)) || sc.dinnerDuration || 45}m)</span>
+                🍽️ Dinner: <strong>${formatDisplayTime(sc.dinnerStart || '20:00')}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.dinnerEnd) - parseTimeToMinutes(sc.dinnerStart)) || sc.dinnerDuration || 45}m)</span>
               </button>
               <button class="btn btn-secondary btn-sm" data-action="open-modal-routine" style="padding:3px 10px;font-size:11px;" title="Customize full daily routine and meal durations">⚙️ Edit Routine</button>
             </div>
@@ -2925,11 +3178,11 @@
     const isNow = (state.viewDate || getTodayISO()) === getTodayISO() && curMin >= dayStartMin && curMin <= dayEndMin;
 
     const hours = [];
-    hours.push({ min: dayStartMin, label: formatTime12(dayStartMin), top: 0 });
+    hours.push({ min: dayStartMin, label: formatDisplayTime(dayStartMin), top: 0 });
     const firstRoundHour = Math.ceil(dayStartMin / 60) * 60;
     for (let m = firstRoundHour; m <= dayEndMin; m += 60) {
       if (m > dayStartMin) {
-        hours.push({ min: m, label: formatTime12(m), top: (m - dayStartMin) * pxPerMin });
+        hours.push({ min: m, label: formatDisplayTime(m), top: (m - dayStartMin) * pxPerMin });
       }
     }
 
@@ -2949,7 +3202,7 @@
             <div class="timeline-playhead" style="top:${playheadTop}px;">
               <div class="playhead-badge font-mono">
                 <span class="playhead-dot"></span>
-                <span>${formatTime12(curMin)} NOW</span>
+                <span>${formatDisplayTime(curMin)} NOW</span>
               </div>
               <div class="playhead-line"></div>
             </div>
@@ -3113,6 +3366,7 @@
                     <div class="task-meta-top">
                       <span class="badge" style="background:${col}18;color:${col};">${lab}</span>
                       <span class="badge badge-${(t.priority || 'Medium').toLowerCase()}">${t.priority || 'Medium'}</span>
+                      ${t.startTime ? `<span class="badge font-mono text-xs" style="background:rgba(245,158,11,0.15);color:var(--accent);">⏰ Starts ${formatDisplayTime(t.startTime)}</span>` : ''}
                       <span class="task-date-pill font-mono text-xs ${isOverdue ? 'date-overdue' : ''}">
                         📅 ${relativeDateLabel(t.deadline, today)}
                       </span>
@@ -3395,7 +3649,7 @@
           <div class="grid-3">
             <div class="card">
               <span class="label-title">Scheduled Events (${dayFixed.length})</span>
-              ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${f.title}</strong> <span class="font-mono text-muted">(${f.start}-${f.end})</span></div>`).join('')}
+              ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${f.title}</strong> <span class="font-mono text-muted">(${formatDisplayTime(f.start)} – ${formatDisplayTime(f.end)})</span></div>`).join('')}
             </div>
             <div class="card">
               <span class="label-title">Tasks Due (${dayTasks.length})</span>
@@ -3589,16 +3843,33 @@
         </div>
 
         <div class="card mb-4">
+          <div class="flex justify-between items-center flex-wrap gap-3">
+            <div>
+              <h3 class="font-semibold text-sm">Time Format Display</h3>
+              <p class="text-xs text-secondary">Choose whether the planner displays and inputs times in 12-hour (AM/PM) or 24-hour format. Current: <strong>${getTimeFormat() === '24h' ? '24-Hour (00:00 – 23:59)' : '12-Hour (AM/PM)'}</strong></p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn btn-sm ${getTimeFormat() !== '24h' ? 'btn-primary' : 'btn-secondary'}" id="btn-time-format-12h" title="Switch to 12-hour AM/PM format">
+                🕒 12-Hour (AM/PM)
+              </button>
+              <button type="button" class="btn btn-sm ${getTimeFormat() === '24h' ? 'btn-primary' : 'btn-secondary'}" id="btn-time-format-24h" title="Switch to 24-hour format">
+                ⏱️ 24-Hour (00:00)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-4">
           <h3 class="font-semibold text-sm mb-1">⏰ Daily Schedule Configuration</h3>
           <p class="text-xs text-secondary mb-3">Set when your day starts/ends and meal break windows. The timeline adapts to your routine.</p>
           <div class="grid-2 mb-3">
             <div>
               <label class="label-title">Day Starts At</label>
-              <input type="time" class="input-text font-mono" id="cfg-day-start" value="${sc.dayStart}" />
+              ${renderTimeInput('cfg-day-start', sc.dayStart || '08:00')}
             </div>
             <div>
               <label class="label-title">Day Ends At</label>
-              <input type="time" class="input-text font-mono" id="cfg-day-end" value="${sc.dayEnd}" />
+              ${renderTimeInput('cfg-day-end', sc.dayEnd || '23:00')}
             </div>
           </div>
           <div class="card p-3 mb-3" style="background: var(--bg-card-hover);">
@@ -3612,7 +3883,7 @@
             <div class="grid-3 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-breakfast-start" value="${sc.breakfastStart || '08:30'}" />
+                ${renderTimeInput('cfg-breakfast-start', sc.breakfastStart || '08:30')}
               </div>
               <div>
                 <label class="label-title">Duration (min)</label>
@@ -3620,7 +3891,7 @@
               </div>
               <div>
                 <label class="label-title">End Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-breakfast-end" value="${sc.breakfastEnd || '09:00'}" />
+                ${renderTimeInput('cfg-breakfast-end', sc.breakfastEnd || '09:00')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-wrap">
@@ -3634,7 +3905,7 @@
             <div class="grid-3 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-lunch-start" value="${sc.lunchStart || '13:00'}" />
+                ${renderTimeInput('cfg-lunch-start', sc.lunchStart || '13:00')}
               </div>
               <div>
                 <label class="label-title">Duration (min)</label>
@@ -3642,7 +3913,7 @@
               </div>
               <div>
                 <label class="label-title">End Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-lunch-end" value="${sc.lunchEnd || '13:45'}" />
+                ${renderTimeInput('cfg-lunch-end', sc.lunchEnd || '13:45')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-wrap">
@@ -3656,7 +3927,7 @@
             <div class="grid-3 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-dinner-start" value="${sc.dinnerStart || '20:00'}" />
+                ${renderTimeInput('cfg-dinner-start', sc.dinnerStart || '20:00')}
               </div>
               <div>
                 <label class="label-title">Duration (min)</label>
@@ -3664,7 +3935,7 @@
               </div>
               <div>
                 <label class="label-title">End Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-dinner-end" value="${sc.dinnerEnd || '20:45'}" />
+                ${renderTimeInput('cfg-dinner-end', sc.dinnerEnd || '20:45')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-wrap">
@@ -4031,6 +4302,18 @@
           </div>
           <div class="grid-2">
             <div>
+              <label class="label-title">Start Time (Optional)</label>
+              ${renderTimeInput('task-input-start-time', data?.startTime || '', { allowEmpty: true, placeholder: getTimeFormat() === '24h' ? 'HH:MM (e.g. 14:30)' : 'e.g. 9:00 AM' })}
+              <span class="text-xs text-secondary mt-1 block">Leave empty for automatic flexible scheduling.</span>
+            </div>
+            <div>
+              <label class="label-title">Break After (mins)</label>
+              <input type="number" class="input-text font-mono" id="task-input-break-after" value="${data?.breakAfterMin || 0}" min="0" max="60" step="5" />
+              <span class="text-xs text-secondary mt-1 block">Optional rest buffer after this task.</span>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
               <label class="label-title">Flexibility</label>
               <select class="select-input" id="task-input-flexibility">
                 <option value="Flexible" ${data?.flexibility === 'Flexible' ? 'selected' : ''}>Flexible (Auto-reschedule)</option>
@@ -4125,7 +4408,7 @@
           </div>
           <div>
             <label class="label-title">When did it start? (Optional)</label>
-            <input type="time" class="input-text font-mono mt-1" id="lost-time-start" />
+            ${renderTimeInput('lost-time-start', '', { allowEmpty: true, placeholder: getTimeFormat() === '24h' ? 'HH:MM' : 'e.g. 2:30 PM' })}
           </div>
           <div>
             <label class="label-title">Reason / Distraction</label>
@@ -4254,8 +4537,8 @@
           <div><label class="label-title">Event Title *</label><input type="text" class="input-text" id="fixed-input-title" placeholder="e.g. Data Structures Lecture" required /></div>
           <div><label class="label-title">Subtitle / Location</label><input type="text" class="input-text" id="fixed-input-subtitle" placeholder="e.g. Room 401 • Prof. Sharma" /></div>
           <div class="grid-2">
-            <div><label class="label-title">Start Time</label><input type="time" class="input-text font-mono" id="fixed-input-start" value="10:00" /></div>
-            <div><label class="label-title">End Time</label><input type="time" class="input-text font-mono" id="fixed-input-end" value="11:30" /></div>
+            <div><label class="label-title">Start Time</label>${renderTimeInput('fixed-input-start', '10:00')}</div>
+            <div><label class="label-title">End Time</label>${renderTimeInput('fixed-input-end', '11:30')}</div>
           </div>
           <div>
             <label class="label-title">Category</label>
@@ -4366,11 +4649,11 @@
           <div class="grid-2">
             <div>
               <label class="label-title">🌅 Day Starts At</label>
-              <input type="time" class="input-text font-mono" id="routine-day-start" value="${sc.dayStart || '08:00'}" />
+              ${renderTimeInput('routine-day-start', sc.dayStart || '08:00')}
             </div>
             <div>
               <label class="label-title">🌙 Day Ends At</label>
-              <input type="time" class="input-text font-mono" id="routine-day-end" value="${sc.dayEnd || '23:00'}" />
+              ${renderTimeInput('routine-day-end', sc.dayEnd || '23:00')}
             </div>
           </div>
 
@@ -4385,7 +4668,7 @@
             <div class="grid-2 gap-2 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="routine-breakfast-start" value="${sc.breakfastStart || '08:30'}" />
+                ${renderTimeInput('routine-breakfast-start', sc.breakfastStart || '08:30')}
               </div>
               <div>
                 <label class="label-title">Duration (minutes)</label>
@@ -4397,7 +4680,7 @@
               ${[15, 20, 30, 45, 60].map(m => `<button type="button" class="duration-pill-btn ${m === bDur ? 'active' : ''}" data-set-dur="routine-breakfast-duration" data-val="${m}">${m}m</button>`).join('')}
             </div>
             <div class="text-xs text-secondary font-mono" id="routine-breakfast-preview">
-              Window: <strong class="text-primary">${sc.breakfastStart || '08:30'} – ${minutesToTime(parseTimeToMinutes(sc.breakfastStart || '08:30') + bDur)}</strong> (${bDur} mins)
+              Window: <strong class="text-primary">${formatDisplayTime(sc.breakfastStart || '08:30')} – ${formatDisplayTime(parseTimeToMinutes(sc.breakfastStart || '08:30') + bDur)}</strong> (${bDur} mins)
             </div>
           </div>
 
@@ -4408,7 +4691,7 @@
             <div class="grid-2 gap-2 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="routine-lunch-start" value="${sc.lunchStart || '13:00'}" />
+                ${renderTimeInput('routine-lunch-start', sc.lunchStart || '13:00')}
               </div>
               <div>
                 <label class="label-title">Duration (minutes)</label>
@@ -4420,7 +4703,7 @@
               ${[20, 30, 45, 60, 75].map(m => `<button type="button" class="duration-pill-btn ${m === lDur ? 'active' : ''}" data-set-dur="routine-lunch-duration" data-val="${m}">${m}m</button>`).join('')}
             </div>
             <div class="text-xs text-secondary font-mono" id="routine-lunch-preview">
-              Window: <strong class="text-primary">${sc.lunchStart || '13:00'} – ${minutesToTime(parseTimeToMinutes(sc.lunchStart || '13:00') + lDur)}</strong> (${lDur} mins)
+              Window: <strong class="text-primary">${formatDisplayTime(sc.lunchStart || '13:00')} – ${formatDisplayTime(parseTimeToMinutes(sc.lunchStart || '13:00') + lDur)}</strong> (${lDur} mins)
             </div>
           </div>
 
@@ -4431,7 +4714,7 @@
             <div class="grid-2 gap-2 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="routine-dinner-start" value="${sc.dinnerStart || '20:00'}" />
+                ${renderTimeInput('routine-dinner-start', sc.dinnerStart || '20:00')}
               </div>
               <div>
                 <label class="label-title">Duration (minutes)</label>
@@ -4443,7 +4726,7 @@
               ${[20, 30, 45, 60, 90].map(m => `<button type="button" class="duration-pill-btn ${m === dDur ? 'active' : ''}" data-set-dur="routine-dinner-duration" data-val="${m}">${m}m</button>`).join('')}
             </div>
             <div class="text-xs text-secondary font-mono" id="routine-dinner-preview">
-              Window: <strong class="text-primary">${sc.dinnerStart || '20:00'} – ${minutesToTime(parseTimeToMinutes(sc.dinnerStart || '20:00') + dDur)}</strong> (${dDur} mins)
+              Window: <strong class="text-primary">${formatDisplayTime(sc.dinnerStart || '20:00')} – ${formatDisplayTime(parseTimeToMinutes(sc.dinnerStart || '20:00') + dDur)}</strong> (${dDur} mins)
             </div>
           </div>
         </div>
@@ -4512,14 +4795,14 @@
               <span class="text-xs text-secondary">${tomorrowFixed.length} fixed event(s)</span>
             </div>
             <div class="tomorrow-schedule-chips">
-              ${sc.breakfastEnabled !== false ? `<span class="tomorrow-schedule-chip chip-meal">🍳 Breakfast ${sc.breakfastStart || '08:30'}</span>` : ''}
+              ${sc.breakfastEnabled !== false ? `<span class="tomorrow-schedule-chip chip-meal">🍳 Breakfast ${formatDisplayTime(sc.breakfastStart || '08:30')}</span>` : ''}
               ${tomorrowFixed.map(fe => `
                 <span class="tomorrow-schedule-chip chip-fixed">
-                  <strong>📌 ${escapeHtml(fe.title)}</strong> (${fe.start} – ${fe.end})
+                  <strong>📌 ${escapeHtml(fe.title)}</strong> (${formatDisplayTime(fe.start)} – ${formatDisplayTime(fe.end)})
                 </span>
               `).join('')}
-              <span class="tomorrow-schedule-chip chip-meal">🍱 Lunch ${sc.lunchStart || '13:00'}</span>
-              <span class="tomorrow-schedule-chip chip-meal">🍽️ Dinner ${sc.dinnerStart || '20:00'}</span>
+              <span class="tomorrow-schedule-chip chip-meal">🍱 Lunch ${formatDisplayTime(sc.lunchStart || '13:00')}</span>
+              <span class="tomorrow-schedule-chip chip-meal">🍽️ Dinner ${formatDisplayTime(sc.dinnerStart || '20:00')}</span>
             </div>
           </div>
 
@@ -4698,6 +4981,9 @@
     if (!state.activeModal) return;
     const { name, data } = state.activeModal;
 
+    // Initialize custom time inputs inside modal
+    initTimeInputs(document.getElementById('modal-slot'));
+
     // Modal Close
     document.querySelectorAll('[data-action="close-modal"]').forEach(b => {
       b.onclick = () => closeModal();
@@ -4724,6 +5010,7 @@
         const deadlineInput = document.getElementById('task-input-deadline');
         const prioritySelect = document.getElementById('task-input-priority');
         const catSelect = document.getElementById('task-input-cat');
+        const startTimeInput = document.getElementById('task-input-start-time');
 
         if (titleInput && parsed.title) {
           titleInput.value = parsed.title;
@@ -4746,11 +5033,14 @@
         if (catSelect && parsed.categoryId) {
           catSelect.value = parsed.categoryId;
         }
+        if (startTimeInput && parsed.startTime) {
+          startTimeInput.value = parsed.startTime;
+        }
 
         if (nlpPreview) {
-          nlpPreview.innerHTML = `<span style="color:#10b981;font-weight:600;">✓ Applied: "${escapeHtml(parsed.title)}" due ${formatDateDisplay(parsed.deadline)} (${parsed.duration}m, ${parsed.priority})</span>`;
+          nlpPreview.innerHTML = `<span style="color:#10b981;font-weight:600;">✓ Applied: "${escapeHtml(parsed.title)}" due ${formatDateDisplay(parsed.deadline)} (${parsed.duration}m, ${parsed.priority}${parsed.startTime ? ', ' + formatDisplayTime(parsed.startTime) : ''})</span>`;
         }
-        showBanner(`Parsed & applied: "${parsed.title}" due ${formatDateDisplay(parsed.deadline)}`, 'info');
+        showBanner(`Parsed & applied: "${parsed.title}" due ${formatDateDisplay(parsed.deadline)}${parsed.startTime ? ' at ' + formatDisplayTime(parsed.startTime) : ''}`, 'info');
       };
 
       if (nlpInput) {
@@ -4777,6 +5067,7 @@
                 <span class="badge" style="background:rgba(6,182,212,0.15);color:#06b6d4;">📅 ${parsed.deadline}</span>
                 <span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;">⏱ ${parsed.duration}m</span>
                 <span class="badge" style="background:rgba(16,185,129,0.15);color:#10b981;">⚡ ${parsed.priority}</span>
+                ${parsed.startTime ? `<span class="badge" style="background:rgba(59,130,246,0.15);color:#60a5fa;">⏰ ${formatDisplayTime(parsed.startTime)}</span>` : ''}
                 <span class="badge" style="background:rgba(255,255,255,0.08);color:var(--text-secondary);">📁 ${escapeHtml(matchedCat)}</span>
               </div>
             `;
@@ -4809,7 +5100,7 @@
           const notes = document.getElementById('task-input-notes')?.value || '';
           const startTime = document.getElementById('task-input-start-time')?.value?.trim() || '';
           if (startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
-            showBanner('Fixed start time must be in 24h format (HH:MM), e.g. 14:00', 'warning');
+            showBanner('Fixed start time must be a valid time (e.g. 9:00 AM or 14:00)', 'warning');
             return;
           }
           const rawBreak = Number(document.getElementById('task-input-break-after')?.value) || 0;
@@ -4975,7 +5266,7 @@
           );
 
           if (conflictingFixed) {
-            showBanner(`Cannot reschedule fixed event: "${conflictingFixed.title}" (${formatTime12(conflictingFixed.startMin)} – ${formatTime12(conflictingFixed.endMin)}) is a fixed event and cannot be moved. Only non-fixed study tasks can be rescheduled.`, 'warning');
+            showBanner(`Cannot reschedule fixed event: "${conflictingFixed.title}" (${formatDisplayTime(conflictingFixed.startMin)} – ${formatDisplayTime(conflictingFixed.endMin)}) is a fixed event and cannot be moved. Only non-fixed study tasks can be rescheduled.`, 'warning');
             return;
           }
           
@@ -5345,7 +5636,7 @@
         if (previewEl) {
           const startMin = parseTimeToMinutes(startVal);
           const endMin = startMin + durVal;
-          previewEl.innerHTML = `Window: <strong class="text-primary">${startVal} – ${minutesToTime(endMin)}</strong> (${durVal} mins)`;
+          previewEl.innerHTML = `Window: <strong class="text-primary">${formatDisplayTime(startVal)} – ${formatDisplayTime(endMin)}</strong> (${durVal} mins)`;
         }
       };
 
@@ -5687,6 +5978,9 @@
   // 11. EVENT LISTENERS
   // =========================================================================
   function attachEventListeners() {
+    // Initialize custom time inputs inside main view
+    initTimeInputs(document.getElementById('app'));
+
     // Tabs Navigation
     document.querySelectorAll('[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -5710,6 +6004,27 @@
     document.getElementById('btn-settings-theme')?.addEventListener('click', () => {
       state.theme = state.theme === 'dark' ? 'light' : 'dark';
       saveState();
+      render();
+    });
+
+    // Time Format Toggles (12h vs 24h)
+    document.getElementById('btn-time-format-12h')?.addEventListener('click', () => {
+      if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+      state.scheduleConfig.timeFormat = '12h';
+      state.timeFormat = '12h';
+      saveState();
+      recalculateTimeline();
+      showBanner('Time format set to 12-Hour (AM/PM)!', 'info');
+      render();
+    });
+
+    document.getElementById('btn-time-format-24h')?.addEventListener('click', () => {
+      if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+      state.scheduleConfig.timeFormat = '24h';
+      state.timeFormat = '24h';
+      saveState();
+      recalculateTimeline();
+      showBanner('Time format set to 24-Hour (00:00 – 23:59)!', 'info');
       render();
     });
 
@@ -5802,7 +6117,7 @@
         };
         recalculateTimeline();
         saveState();
-        showBanner(`Schedule updated: Day starts at ${formatTime12(parseTimeToMinutes(val))}`, 'info');
+        showBanner(`Schedule updated: Day starts at ${formatDisplayTime(parseTimeToMinutes(val))}`, 'info');
         render();
       }
     });
@@ -5816,7 +6131,7 @@
       };
       recalculateTimeline();
       saveState();
-      showBanner(`Day schedule adapted! Now starting at ${formatTime12(curM)}`, 'success');
+      showBanner(`Day schedule adapted! Now starting at ${formatDisplayTime(curM)}`, 'success');
       render();
     });
 
@@ -5846,7 +6161,7 @@
         state.scheduleConfig[eKey] = minutesToTime(curS + newDur);
         recalculateTimeline();
         saveState();
-        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} duration adjusted to ${newDur} mins (${state.scheduleConfig[sKey]} – ${state.scheduleConfig[eKey]})!`, 'success');
+        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} duration adjusted to ${newDur} mins (${formatDisplayTime(state.scheduleConfig[sKey])} – ${formatDisplayTime(state.scheduleConfig[eKey])})!`, 'success');
         render();
       });
     });
@@ -5867,7 +6182,7 @@
         state.scheduleConfig[eKey] = minutesToTime(newS + dur);
         recalculateTimeline();
         saveState();
-        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved to ${state.scheduleConfig[sKey]} – ${state.scheduleConfig[eKey]}!`, 'success');
+        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved to ${formatDisplayTime(state.scheduleConfig[sKey])} – ${formatDisplayTime(state.scheduleConfig[eKey])}!`, 'success');
         render();
       });
     });
@@ -5887,7 +6202,7 @@
         state.scheduleConfig[eKey] = minutesToTime(newS + dur);
         recalculateTimeline();
         saveState();
-        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved earlier to ${state.scheduleConfig[sKey]} – ${state.scheduleConfig[eKey]}!`, 'success');
+        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved earlier to ${formatDisplayTime(state.scheduleConfig[sKey])} – ${formatDisplayTime(state.scheduleConfig[eKey])}!`, 'success');
         render();
       });
     });
@@ -5912,13 +6227,14 @@
         if (blk) {
           blk.startMin += mins;
           blk.endMin += mins;
-          blk.startTimeStr = minutesToTime(blk.startMin);
-          blk.endTimeStr = minutesToTime(blk.endMin);
+          blk.startTimeStr = formatDisplayTime(blk.startMin);
+          blk.endTimeStr = formatDisplayTime(blk.endMin);
           showBanner(`Break delayed by ${mins} minutes!`, 'info');
           render();
         }
       });
     });
+
 
     // Quick Add Dropdown
     const qaBtn = document.getElementById('btn-quick-add');
@@ -6536,7 +6852,7 @@
     if (clockEl) {
       const curMin = getCurrentTimeMinutes(state.currentTime);
       const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][state.currentTime.getDay()];
-      clockEl.innerText = `${dayName} ${formatTime12(curMin)}`;
+      clockEl.innerText = `${dayName} ${formatDisplayTime(curMin)}`;
     }
     if (state.focus && state.focus.isRunning) {
       if (!state.focus.lastStartTime) state.focus.lastStartTime = Date.now();
@@ -6646,6 +6962,17 @@
     validateTaskDuration,
     validateTimeRange,
     validateStudyMinutes,
+    formatTime12,
+    getTimeFormat,
+    formatDisplayTime,
+    convert24hTo12hParts,
+    parse12hTo24h,
+    normalize24hString,
+    renderTimeInput,
+    initTimeInputs,
+    generateDayTimeline,
+    parseQuickTaskInput,
+    DEFAULT_SCHEDULE_CONFIG,
   };
 
 })();

@@ -562,7 +562,7 @@
       }))
       .filter(ev => ev.duration > 0);
 
-    // Inject today's Lost Time blocks
+    // Inject today's Lost Time blocks (Fixed events are locked and never modified)
     if (typeof state !== 'undefined' && state.lostTimeEvents) {
       const todayLost = state.lostTimeEvents.filter(l => l.date === currentDate && l.startMin !== undefined);
       for (const l of todayLost) {
@@ -817,7 +817,9 @@
         const spaceLeft = gap.endMin - slotPtr;
         if (spaceLeft < 5) break;
 
-        const minNeeded = Math.min(curTask.simRemaining, minChunkMin);
+        const minNeeded = curTask.simRemaining <= maxChunkMin
+          ? curTask.simRemaining
+          : minChunkMin;
         if (spaceLeft < minNeeded) {
           break;
         }
@@ -939,182 +941,169 @@
     reason = 'Other distraction',
     currentTimeMinutes = 0,
     todayIso = '',
+    startMin = null,
   }) {
-    let needed = Math.max(0, Math.round(lostMinutes));
+    const min = Math.max(5, Math.round(lostMinutes || 30));
+    const lostStartMin = (startMin != null && !isNaN(startMin))
+      ? startMin
+      : Math.max(0, currentTimeMinutes - min);
+    const lostEndMin = lostStartMin + min;
+
     const parts = [];
     let affectedCriticalOrHigh = false;
+    const taskMap = new Map(tasks.map(t => [t.id, { ...t }]));
 
+    const lostBlock = {
+      id: `lost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      type: 'lost',
+      title: '⚠️ Lost Time',
+      subtitle: reason || 'Distraction',
+      category: FALLBACK_CATEGORY_ID,
+      startMin: lostStartMin,
+      endMin: lostEndMin,
+      duration: min,
+    };
+
+    // Separate blocks into:
+    // 1. pastBlocks: fully finished before lostStartMin
+    // 2. resumingTasks: study tasks interrupted by or during lost time (kept at full uncut duration)
+    // 3. subsequentBlocks: all remaining blocks originally scheduled after lostStartMin
     const pastBlocks = [];
-    let futureBlocks = [];
+    const resumingTasks = [];
+    const subsequentBlocks = [];
 
     for (const b of currentTimeline) {
-      if (b.endMin <= currentTimeMinutes) pastBlocks.push({ ...b });
-      else futureBlocks.push({ ...b });
+      if (b.type === 'free') {
+        // Drop previous free buffer placeholders so shifted schedule packs smoothly
+        continue;
+      }
+
+      if (b.endMin <= lostStartMin) {
+        pastBlocks.push({ ...b });
+        continue;
+      }
+
+      // Blocks overlapping the lost time window [lostStartMin, lostEndMin]
+      if (b.startMin < lostEndMin && b.endMin > lostStartMin) {
+        if (b.type === 'task') {
+          if (b.startMin < lostStartMin) {
+            // Task was partially worked on before distraction started
+            const workedMin = lostStartMin - b.startMin;
+            pastBlocks.push({
+              ...b,
+              endMin: lostStartMin,
+              duration: workedMin,
+            });
+            const remDuration = Math.max(5, b.duration - workedMin);
+            resumingTasks.push({
+              ...b,
+              id: `${b.id}-resumed`,
+              duration: remDuration,
+            });
+            parts.push(`Study on "${b.title}" resumes right after lost time at ${formatTime12(lostEndMin)} for ${remDuration}m.`);
+          } else {
+            // Task was scheduled during or overlapping lost time:
+            // It MUST NOT be sliced or reduced! It resumes right after lost time with full duration:
+            const fullTask = taskMap.get(b.taskId);
+            const userDuration = fullTask ? (fullTask.duration || fullTask.remaining || b.duration) : b.duration;
+            resumingTasks.push({
+              ...b,
+              duration: userDuration,
+            });
+            parts.push(`Study on "${b.title}" starts right after lost time at ${formatTime12(lostEndMin)} for ${userDuration}m.`);
+          }
+          if (b.priority === 'Critical' || b.priority === 'High') {
+            affectedCriticalOrHigh = true;
+          }
+        } else if (b.type === 'break') {
+          // Break falls during distraction window -> drop it since user was not studying
+          continue;
+        } else {
+          // Non-task block (e.g. fixed or meal) if somehow overlapping
+          subsequentBlocks.push({ ...b });
+        }
+        continue;
+      }
+
+      if (b.startMin >= lostEndMin) {
+        // Scheduled after lost time window -> shifts below!
+        subsequentBlocks.push({ ...b });
+      }
     }
 
-    const taskMap = new Map(tasks.map(t => [t.id, { ...t }]));
+    // Reflow queue starting right after the lost time (lostEndMin)
+    let curPtr = lostEndMin;
+    const reflowed = [lostBlock];
+
+    // 1. Place resuming study tasks immediately after lost time with FULL intact duration
+    for (const rTask of resumingTasks) {
+      const taskStart = curPtr;
+      const taskEnd = taskStart + rTask.duration;
+      reflowed.push({
+        ...rTask,
+        startMin: taskStart,
+        endMin: taskEnd,
+        duration: rTask.duration,
+        startTimeStr: minutesToTime(taskStart),
+        endTimeStr: minutesToTime(taskEnd),
+      });
+      curPtr = taskEnd;
+
+      if (rTask.taskId && taskMap.has(rTask.taskId)) {
+        taskMap.get(rTask.taskId).startTime = minutesToTime(taskStart);
+      }
+    }
+
+    // 2. Sort subsequent blocks by original startMin and shift them smoothly
+    subsequentBlocks.sort((a, b) => a.startMin - b.startMin);
+
+    for (const b of subsequentBlocks) {
+      // Shift block if preceding items pushed past its original start time
+      const newStart = Math.max(b.startMin, curPtr);
+      const newEnd = newStart + b.duration;
+      reflowed.push({
+        ...b,
+        startMin: newStart,
+        endMin: newEnd,
+        duration: b.duration,
+        startTimeStr: minutesToTime(newStart),
+        endTimeStr: minutesToTime(newEnd),
+      });
+      curPtr = newEnd;
+
+      if (b.type === 'task' && b.taskId && taskMap.has(b.taskId)) {
+        const t = taskMap.get(b.taskId);
+        if (t.startTime) {
+          t.startTime = minutesToTime(newStart);
+        }
+      }
+    }
+
+    const dayEndMin = typeof state !== 'undefined' && state.scheduleConfig?.dayEnd
+      ? parseTimeToMinutes(state.scheduleConfig.dayEnd)
+      : 23 * 60; // 23:00 default
+
     const trimmedTasks = [];
     const postponedTasks = [];
-    let freedFromFree = 0;
-    let freedFromBreaks = 0;
 
-    // Tier 1: Shrink future free time
-    if (needed > 0) {
-      for (const b of futureBlocks) {
-        if (b.type === 'free') {
-          const take = Math.min(needed, b.duration);
-          b.duration -= take;
-          needed -= take;
-          freedFromFree += take;
-          if (needed <= 0) break;
-        }
-      }
-      futureBlocks = futureBlocks.filter(b => b.type !== 'free' || b.duration > 0);
-    }
-    if (freedFromFree > 0) parts.push(`Recovered ${freedFromFree}m from planned free/buffer time.`);
-
-    // Tier 2: Shrink breaks to floor of 5m
-    if (needed > 0) {
-      for (const b of futureBlocks) {
-        if (b.type === 'break' && b.duration > 5) {
-          const take = Math.min(needed, b.duration - 5);
-          b.duration -= take;
-          needed -= take;
-          freedFromBreaks += take;
-          if (needed <= 0) break;
-        }
-      }
-    }
-    if (freedFromBreaks > 0) parts.push(`Shortened rest breaks by ${freedFromBreaks}m (kept 5m minimums).`);
-
-    // Tier 3: Trim Low then Medium flexible tasks down to 15m (NEVER STRICT TASKS, NEVER REDUCE task.remaining)
-    const trimTier = (tier) => {
-      if (needed <= 0) return;
-      for (const b of futureBlocks) {
-        if (b.type === 'task' && b.flexibility !== 'Strict' && b.priority === tier && b.duration > 15) {
-          const take = Math.min(needed, b.duration - 15);
-          b.duration -= take;
-          needed -= take;
-          // CRITICAL: We do NOT reduce t.remaining! The student's workload remains what it was.
-          trimmedTasks.push({ title: b.title, priority: b.priority, trimmedMin: take });
-          if (needed <= 0) break;
-        }
-      }
-    };
-    if (needed > 0) trimTier('Low');
-    if (needed > 0) trimTier('Medium');
-    if (trimmedTasks.length > 0) {
-      parts.push(`Trimmed non-urgent flexible tasks to 15m floor: ${trimmedTasks.map(t => `"${t.title}" (-${t.trimmedMin}m today)`).join(', ')}.`);
-    }
-
-    // Tier 4: Postpone whole flexible tasks to tomorrow (LOWEST priority first, STRICT protected)
-    if (needed > 0) {
-      const candidates = [];
-      for (let i = 0; i < futureBlocks.length; i++) {
-        if (futureBlocks[i].type === 'task' && futureBlocks[i].flexibility !== 'Strict') {
-          candidates.push(i);
-        }
-      }
-      // Sort ascending by priority weight (Low = 1 first, then Medium = 2, then High = 3, then Critical = 4)
-      candidates.sort((iA, iB) => (PRIORITY_WEIGHTS[futureBlocks[iA].priority] || 1) - (PRIORITY_WEIGHTS[futureBlocks[iB].priority] || 1));
-
-      const removeIndices = new Set();
-      for (const idx of candidates) {
-        if (needed <= 0) break;
-        const b = futureBlocks[idx];
-        removeIndices.add(idx);
-        const isHigh = b.priority === 'Critical' || b.priority === 'High';
-        if (isHigh) affectedCriticalOrHigh = true;
-
-        if (b.taskId && taskMap.has(b.taskId)) {
-          taskMap.get(b.taskId).postponedUntil = addDays(todayIso, 1);
-        }
-        postponedTasks.push({ title: b.title, priority: b.priority, duration: b.duration });
-        needed -= b.duration;
-      }
-
-      // If needed still > 0, strict tasks move only if physically impossible to fit
-      if (needed > 0) {
-        const strictCandidates = [];
-        for (let i = 0; i < futureBlocks.length; i++) {
-          if (futureBlocks[i].type === 'task' && futureBlocks[i].flexibility === 'Strict' && !removeIndices.has(i)) {
-            strictCandidates.push(i);
-          }
-        }
-        strictCandidates.sort((iA, iB) => (PRIORITY_WEIGHTS[futureBlocks[iA].priority] || 1) - (PRIORITY_WEIGHTS[futureBlocks[iB].priority] || 1));
-        for (const idx of strictCandidates) {
-          if (needed <= 0) break;
-          const b = futureBlocks[idx];
-          removeIndices.add(idx);
-          affectedCriticalOrHigh = true;
+    // Check for overflow past dayEndMin (bedtime)
+    for (let i = reflowed.length - 1; i >= 0; i--) {
+      const b = reflowed[i];
+      if (b.type === 'task' && b.endMin > dayEndMin) {
+        if (b.flexibility !== 'Strict') {
           if (b.taskId && taskMap.has(b.taskId)) {
             taskMap.get(b.taskId).postponedUntil = addDays(todayIso, 1);
           }
-          postponedTasks.push({ title: b.title, priority: b.priority, duration: b.duration, isStrict: true });
-          parts.push(`⚠️ Insufficient capacity: Strict task "${b.title}" had to be moved to tomorrow.`);
-          needed -= b.duration;
+          postponedTasks.push({ title: b.title, priority: b.priority });
+          reflowed.splice(i, 1);
         }
       }
-
-      futureBlocks = futureBlocks.filter((_, idx) => !removeIndices.has(idx));
     }
+
     if (postponedTasks.length > 0) {
-      parts.push(`Postponed to tomorrow: ${postponedTasks.map(t => `"${t.title}" (${t.priority})`).join(', ')}.`);
-      if (affectedCriticalOrHigh && !postponedTasks.some(t => t.isStrict)) {
-        parts.push(`⚠️ Note: High-priority flexible tasks had to shift to tomorrow.`);
-      }
-    }
-
-    // Workload integrity reminder
-    parts.push('Remaining workload counts are preserved.');
-
-    // Tier 5: Reflow remaining future blocks back-to-back from "now"
-    // Keep fixed events and meals locked in place
-    const fixedFuture = futureBlocks.filter(b => b.type === 'fixed' || b.type === 'meal').sort((a, b) => a.startMin - b.startMin);
-    const nonFixed = futureBlocks.filter(b => b.type !== 'fixed' && b.type !== 'meal');
-
-    let curPtr = currentTimeMinutes;
-    const reflowed = [];
-    let nIdx = 0;
-
-    while (nIdx < nonFixed.length) {
-      const block = nonFixed[nIdx];
-      const nextFix = fixedFuture.find(f => f.endMin > curPtr);
-
-      if (nextFix && curPtr < nextFix.startMin) {
-        const cap = nextFix.startMin - curPtr;
-        if (block.duration <= cap) {
-          reflowed.push({ ...block, startMin: curPtr, endMin: curPtr + block.duration });
-          curPtr += block.duration;
-          nIdx++;
-        } else {
-          // Add buffer for gap before fixed event if space permits
-          if (cap >= 5) {
-            reflowed.push({
-              id: `free-reflow-${curPtr}`,
-              type: 'free',
-              title: 'Free Buffer',
-              category: FALLBACK_CATEGORY_ID,
-              startMin: curPtr,
-              endMin: nextFix.startMin,
-              duration: cap,
-            });
-          }
-          if (!reflowed.some(b => b.id === nextFix.id)) reflowed.push(nextFix);
-          curPtr = nextFix.endMin;
-        }
-      } else if (nextFix && curPtr >= nextFix.startMin) {
-        if (!reflowed.some(b => b.id === nextFix.id)) reflowed.push(nextFix);
-        curPtr = Math.max(curPtr, nextFix.endMin);
-      } else {
-        reflowed.push({ ...block, startMin: curPtr, endMin: curPtr + block.duration });
-        curPtr += block.duration;
-        nIdx++;
-      }
-    }
-
-    for (const f of fixedFuture) {
-      if (!reflowed.some(b => b.id === f.id)) reflowed.push(f);
+      parts.push(`Day capacity reached: Postponed to tomorrow (${postponedTasks.map(t => t.title).join(', ')}).`);
+    } else {
+      parts.push(`Subsequent schedule shifted below smoothly.`);
     }
 
     const combined = [...pastBlocks, ...reflowed]
@@ -1127,12 +1116,17 @@
         if (currentTimeMinutes >= block.endMin) status = 'fixed-done';
         else if (currentTimeMinutes >= block.startMin) status = 'fixed-active';
         else status = 'fixed';
+      } else if (block.type === 'lost') {
+        if (currentTimeMinutes >= block.endMin) status = 'passed';
+        else if (currentTimeMinutes >= block.startMin) status = 'active';
+        else status = 'upcoming';
       } else if (block.type === 'task') {
         const original = taskMap.get(block.taskId);
         const isDone = original?.status === 'completed' || (original && original.remaining <= 0);
         if (isDone) status = 'completed';
-        else if (currentTimeMinutes >= block.endMin) status = 'missed';
-        else if (currentTimeMinutes >= block.startMin) status = 'active';
+        else if (currentTimeMinutes >= block.endMin && block.endMin <= lostStartMin) status = 'missed';
+        else if (currentTimeMinutes >= block.endMin && block.startMin >= lostEndMin) status = 'missed';
+        else if (currentTimeMinutes >= block.startMin && currentTimeMinutes < block.endMin) status = 'active';
         else status = 'upcoming';
       } else {
         if (currentTimeMinutes >= block.endMin) status = 'passed';
@@ -1151,7 +1145,7 @@
     return {
       updatedTimeline: finalTimeline,
       updatedTasks: Array.from(taskMap.values()),
-      explanation: parts.join(' ') || `Timeline recalculated from ${minutesToTime(currentTimeMinutes)}.`,
+      explanation: parts.join(' ') || `Schedule replanned: study resumed at ${formatTime12(lostEndMin)}.`,
       affectedCriticalOrHigh,
       trimmedTasks,
       postponedTasks,
@@ -4409,6 +4403,20 @@
           const curMin = getCurrentTimeMinutes(state.currentTime);
           const startInput = document.getElementById('lost-time-start')?.value;
           const startMin = startInput ? parseTimeToMinutes(startInput) : Math.max(0, curMin - min);
+          const endMin = startMin + min;
+
+          // Check if lost time conflicts with any Fixed Event
+          const conflictingFixed = (state.timeline || []).find(b => 
+            (b.type === 'fixed' || b.type === 'meal') &&
+            Math.max(startMin, b.startMin) < Math.min(endMin, b.endMin)
+          );
+
+          if (conflictingFixed) {
+            showBanner(`Cannot reschedule fixed event: "${conflictingFixed.title}" (${formatTime12(conflictingFixed.startMin)} – ${formatTime12(conflictingFixed.endMin)}) is a fixed event and cannot be moved. Only non-fixed study tasks can be rescheduled.`, 'warning');
+            return;
+          }
+          
+          const newLostId = `lost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           
           const res = replanAfterLostTime({
             currentTimeline: state.timeline,
@@ -4417,11 +4425,12 @@
             reason,
             currentTimeMinutes: curMin,
             todayIso: getTodayISO(),
+            startMin: startMin,
           });
 
           state.tasks = res.updatedTasks;
           state.timeline = res.updatedTimeline;
-          state.lostTimeEvents.unshift({ id: `lost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, date: getTodayISO(), minutes: min, reason, startMin });
+          state.lostTimeEvents.unshift({ id: newLostId, date: getTodayISO(), minutes: min, reason, startMin });
 
           closeModal();
           saveState();

@@ -3426,6 +3426,22 @@
   // MODALS
 
   // -------------------------------------------------------------------------
+  function renderDateInput(id, value, label) {
+    const accessibleLabel = label.toLowerCase();
+    return `
+      <div class="date-input-control">
+        <input type="date" class="input-text font-mono" id="${id}" value="${value}" aria-label="${label}" />
+        <button type="button" class="date-picker-button" data-date-picker-for="${id}" aria-label="Choose ${accessibleLabel}" title="Choose ${accessibleLabel}">
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+            <rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M16 3v4M8 3v4M3 10h18" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+    `;
+  }
+
   function renderModal() {
     const slot = document.getElementById('modal-slot');
     if (!slot) return;
@@ -3471,8 +3487,8 @@
           </div>
           <div class="grid-2">
             <div>
-              <label class="label-title">Deadline</label>
-              <input type="date" class="input-text font-mono" id="task-input-deadline" value="${data?.deadline || getTodayISO()}" />
+              <label class="label-title" for="task-input-deadline">Deadline</label>
+              ${renderDateInput('task-input-deadline', data?.deadline || getTodayISO(), 'Deadline')}
             </div>
             <div>
               <label class="label-title">Priority</label>
@@ -3658,7 +3674,7 @@
       body = `
         <form id="form-college-subj" class="flex flex-col gap-3">
           <div><label class="label-title">Subject Name *</label><input type="text" class="input-text" id="col-subj-name" required /></div>
-          <div><label class="label-title">Exam Date</label><input type="date" class="input-text font-mono" id="col-subj-date" /></div>
+          <div><label class="label-title" for="col-subj-date">Exam Date</label>${renderDateInput('col-subj-date', '', 'Exam date')}</div>
           <div class="card p-3" style="background:#06b6d410;border:1px dashed #06b6d444;">
             <label class="label-title">✨ Quick Add Syllabus (Smart Parser)</label>
             <p class="text-xs text-secondary mb-2">Enter all chapters/topics separated by commas, semicolons, or new lines. They'll be auto-added as syllabus topics.</p>
@@ -3739,7 +3755,7 @@
             <select class="select-input" id="sess-input-task">${taskOpts || '<option value="">No tasks — create one first</option>'}</select>
           </div>
           <div class="grid-2">
-            <div><label class="label-title">Date</label><input type="date" class="input-text font-mono" id="sess-input-date" value="${getTodayISO()}" /></div>
+            <div><label class="label-title" for="sess-input-date">Date</label>${renderDateInput('sess-input-date', getTodayISO(), 'Date')}</div>
             <div><label class="label-title">Actual Minutes</label><input type="number" class="input-text font-mono" id="sess-input-min" value="45" min="1" /></div>
           </div>
         </form>
@@ -5873,6 +5889,19 @@
       if (qaMenu && qaMenu.style.display !== 'none') {
         qaMenu.style.display = 'none';
       }
+    });
+
+    // Open the native date picker from the adjacent calendar button.
+    document.addEventListener('click', (event) => {
+      const trigger = event.target.closest?.('[data-date-picker-for]');
+      if (!trigger) return;
+      const input = document.getElementById(trigger.dataset.datePickerFor);
+      if (!input) return;
+      input.focus();
+      if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); return; } catch {}
+      }
+      input.click();
     });
 
     // Global Keyboard Shortcuts

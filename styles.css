@@ -3296,3 +3296,49 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 
+
+/* Shared date picker controls */
+.date-input-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.date-input-control .input-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.date-picker-button {
+  display: inline-flex;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.date-picker-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.date-picker-button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.date-picker-button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}

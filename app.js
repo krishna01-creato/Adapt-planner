@@ -2652,7 +2652,7 @@
       <div class="app-banner banner-${state.banner.type} animate-fade-in">
         <div class="banner-content">
           <span>${state.banner.type === 'warning' ? '⚠️' : state.banner.type === 'success' ? '✅' : 'ℹ️'}</span>
-          <span>${state.banner.text}</span>
+          <span>${escapeHtml(state.banner.text)}</span>
         </div>
         <button class="banner-close-btn" id="btn-banner-close">✕</button>
       </div>
@@ -2836,9 +2836,9 @@
               <div class="hero-live-status">
                 <span class="live-status-chip">
                   <span class="status-indicator-dot"></span>
-                  <strong>Currently:</strong> ${curStatus}
+                  <strong>Currently:</strong> ${escapeHtml(curStatus)}
                 </span>
-                <span class="next-status-text font-mono">${nextStatus}</span>
+                <span class="next-status-text font-mono">${escapeHtml(nextStatus)}</span>
               </div>
             </div>
 
@@ -2922,7 +2922,7 @@
                         <div class="mini-task-left">
                           <input type="checkbox" class="task-checkbox" data-task-complete="${t.id}" ${t.status === 'completed' ? 'checked' : ''} />
                           <div class="mini-task-meta">
-                            <span class="mini-task-title">${t.title}</span>
+                            <span class="mini-task-title">${escapeHtml(t.title)}</span>
                             <div class="mini-task-tags">
                               <span class="badge text-xs" style="color:${col};background:${col}18;">${lab}</span>
                               <span class="badge badge-${(t.priority || 'Medium').toLowerCase()}">${t.priority || 'Medium'}</span>
@@ -3075,7 +3075,7 @@
             return `
               <div class="agenda-break-row font-mono">
                 <span class="break-line"></span>
-                <span class="break-pill">☕ ${b.title} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m)</span>
+                <span class="break-pill">☕ ${escapeHtml(b.title)} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m)</span>
                 <div class="break-actions-group">
                   <button class="btn btn-sm btn-ghost text-xs" data-action="skip-break" data-break-id="${b.id}" style="padding:2px 8px;" title="Skip break to free time">✕ Skip</button>
                   <button class="btn btn-sm btn-ghost text-xs" data-action="push-break" data-break-id="${b.id}" data-mins="15" style="padding:2px 8px;" title="Push break 15 min later">⏩ +15m</button>
@@ -3090,7 +3090,7 @@
               <div class="agenda-meal-row">
                 <div class="meal-left-meta">
                   <span class="meal-icon">${b.mealKey === 'breakfast' ? '🍳' : b.mealKey === 'dinner' ? '🍽️' : '🍱'}</span>
-                  <span class="meal-title">${b.title}</span>
+                  <span class="meal-title">${escapeHtml(b.title)}</span>
                   <span class="font-mono text-xs text-secondary ml-1">${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m)</span>
                 </div>
                 <div class="meal-actions-group">
@@ -3126,7 +3126,7 @@
           if (b.type === 'free') {
             return `
               <div class="agenda-free-row">
-                <span class="text-xs text-secondary font-mono">🍃 ${b.title} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m free buffer)</span>
+                <span class="text-xs text-secondary font-mono">🍃 ${escapeHtml(b.title)} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m free buffer)</span>
               </div>
             `;
           }
@@ -3165,8 +3165,8 @@
                 <div>${statusBadge}</div>
               </div>
               <div>
-                <h4 class="agenda-title ${isDone ? 'line-through text-muted' : ''}">${b.title}</h4>
-                ${b.subtitle ? `<p class="agenda-subtitle text-secondary mt-1">${b.subtitle}</p>` : ''}
+                <h4 class="agenda-title ${isDone ? 'line-through text-muted' : ''}">${escapeHtml(b.title)}</h4>
+                ${b.subtitle ? `<p class="agenda-subtitle text-secondary mt-1">${escapeHtml(b.subtitle)}</p>` : ''}
               </div>
               ${isTask && !isDone ? `
                 <div class="agenda-actions">
@@ -3253,8 +3253,8 @@
                     </div>
                   </div>
                   <div class="block-main">
-                    <span class="block-title">${b.title}</span>
-                    ${b.subtitle && !isShort ? `<span class="text-xs text-secondary">${b.subtitle}</span>` : ''}
+                    <span class="block-title">${escapeHtml(b.title)}</span>
+                    ${b.subtitle && !isShort ? `<span class="text-xs text-secondary">${escapeHtml(b.subtitle)}</span>` : ''}
                   </div>
                   ${isTask && b.status !== 'completed' && !isShort ? `
                     <div class="block-actions">
@@ -3339,7 +3339,7 @@
           <div class="toolbar-top-row">
             <div class="search-box">
               <span class="search-icon">🔍</span>
-              <input type="text" class="input-text search-input" id="task-search-input" placeholder="Search tasks..." value="${taskFilter.query}" />
+              <input type="text" class="input-text search-input" id="task-search-input" placeholder="Search tasks..." value="${escapeHtml(taskFilter.query)}" />
             </div>
             <div class="sort-box">
               <span class="text-xs text-secondary mr-2">Sort:</span>
@@ -3391,8 +3391,8 @@
                         📅 ${relativeDateLabel(t.deadline, today)}
                       </span>
                     </div>
-                    <h3 class="task-title ${isDone ? 'line-through text-muted' : ''}">${t.title}</h3>
-                    ${t.notes ? `<p class="text-xs text-secondary">${t.notes}</p>` : ''}
+                    <h3 class="task-title ${isDone ? 'line-through text-muted' : ''}">${escapeHtml(t.title)}</h3>
+                    ${t.notes ? `<p class="text-xs text-secondary">${escapeHtml(t.notes)}</p>` : ''}
                     ${t.subtasks && t.subtasks.length > 0 ? `
                       <div class="mt-2 text-xs text-muted">
                         ${t.subtasks.filter(s => s.done).length}/${t.subtasks.length} subtasks completed
@@ -3669,11 +3669,11 @@
           <div class="grid-3">
             <div class="card">
               <span class="label-title">Scheduled Events (${dayFixed.length})</span>
-              ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${f.title}</strong> <span class="font-mono text-muted">(${formatDisplayTime(f.start)} – ${formatDisplayTime(f.end)})</span></div>`).join('')}
+              ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${escapeHtml(f.title)}</strong> <span class="font-mono text-muted">(${formatDisplayTime(f.start)} – ${formatDisplayTime(f.end)})</span></div>`).join('')}
             </div>
             <div class="card">
               <span class="label-title">Tasks Due (${dayTasks.length})</span>
-              ${dayTasks.map(t => `<div class="text-xs py-1 ${t.status === 'completed' ? 'line-through text-muted' : ''}"><strong>${t.title}</strong> (${t.remaining}m)</div>`).join('')}
+              ${dayTasks.map(t => `<div class="text-xs py-1 ${t.status === 'completed' ? 'line-through text-muted' : ''}"><strong>${escapeHtml(t.title)}</strong> (${t.remaining}m)</div>`).join('')}
             </div>
             <div class="card">
               <span class="label-title">Study Sessions Logged (${daySessions.length})</span>
@@ -4294,7 +4294,7 @@
           ` : ''}
           <div>
             <label class="label-title">Task Title *</label>
-            <input type="text" class="input-text" id="task-input-title" value="${data?.title || ''}" required />
+            <input type="text" class="input-text" id="task-input-title" value="${escapeHtml(data?.title || '')}" required />
           </div>
           <div class="grid-2">
             <div>
@@ -4349,7 +4349,7 @@
           </div>
           <div>
             <label class="label-title">Notes / Details</label>
-            <textarea class="textarea-input" id="task-input-notes" placeholder="Any resources or specific goals...">${data?.notes || ''}</textarea>
+            <textarea class="textarea-input" id="task-input-notes" placeholder="Any resources or specific goals...">${escapeHtml(data?.notes || '')}</textarea>
           </div>
         </form>
       `;
@@ -4457,7 +4457,7 @@
       body = rec ? `
         <div class="card p-3">
           <span class="badge badge-${(rec.task.priority || 'medium').toLowerCase()}">${rec.task.priority} Priority</span>
-          <h3 class="font-bold text-base mt-2">${rec.task.title}</h3>
+          <h3 class="font-bold text-base mt-2">${escapeHtml(rec.task.title)}</h3>
           <p class="text-xs text-secondary mt-1">${rec.reason}</p>
         </div>
       ` : '<p class="text-sm text-secondary">All tasks complete! Add a new goal or enjoy your break.</p>';
@@ -4582,7 +4582,7 @@
       `;
     } else if (name === 'session') {
       title = '⏱️ Log Study Session';
-      const taskOpts = state.tasks.map(t => `<option value="${t.id}">${t.title}</option>`).join('');
+      const taskOpts = state.tasks.map(t => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join('');
       body = `
         <form id="form-session" class="flex flex-col gap-3">
           <div>
@@ -4985,7 +4985,7 @@
       <div class="modal-backdrop" id="modal-backdrop">
         <div class="modal-content ${name === 'planNextDay' || name === 'brainDump' ? 'modal-content-lg' : ''} animate-fade-in">
           <div class="modal-header">
-            <h3 class="modal-title font-semibold">${title}</h3>
+            <h3 class="modal-title font-semibold">${escapeHtml(title)}</h3>
             <button class="modal-close-btn" data-action="close-modal">✕</button>
           </div>
           <div class="modal-body">${body}</div>

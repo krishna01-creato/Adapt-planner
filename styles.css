@@ -257,6 +257,35 @@ h1, h2, h3, h4, h5, h6 {
   resize: vertical;
 }
 
+.task-duration-slider {
+  width: 100%;
+  min-width: 0;
+  margin: 2px 0 8px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.task-duration-manual {
+  width: 100%;
+}
+
+.task-duration-help {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.task-duration-help strong {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .label-title {
   display: block;
   font-size: 11px;

@@ -4034,7 +4034,9 @@
             </div>
             <div>
               <label class="label-title">Duration (mins)</label>
-              <input type="number" class="input-text font-mono" id="task-input-duration" value="${data?.duration || 45}" min="1" step="1" />
+              <input type="range" class="task-duration-slider" id="task-input-duration-slider" min="1" max="1440" step="1" value="${data?.duration || 45}" aria-label="Task duration slider" />
+              <input type="number" class="input-text font-mono task-duration-manual" id="task-input-duration" value="${data?.duration || 45}" min="1" max="1440" step="1" aria-label="Task duration in minutes" />
+              <div class="task-duration-help"><span>Adjust quickly or enter minutes</span><strong id="task-input-duration-display">${formatDuration(data?.duration || 45)}</strong></div>
             </div>
           </div>
           <div class="grid-2">
@@ -4808,7 +4810,20 @@
         nlpBtn.onclick = applyParsedTask;
       }
 
-      const saveBtn = document.getElementById('btn-save-task');
+      const durationInput = document.getElementById('task-input-duration');
+      const durationSlider = document.getElementById('task-input-duration-slider');
+      const durationDisplay = document.getElementById('task-input-duration-display');
+      const syncDurationControls = (source) => {
+        const value = Number(source === 'slider' ? durationSlider?.value : durationInput?.value);
+        if (!Number.isFinite(value) || value < 1 || value > 1440) return;
+        if (source === 'slider' && durationInput) durationInput.value = String(value);
+        if (source === 'manual' && durationSlider) durationSlider.value = String(value);
+        if (durationDisplay) durationDisplay.textContent = formatDuration(value);
+      };
+durationSlider?.addEventListener('input', () => syncDurationControls('slider'));
+      durationInput?.addEventListener('input', () => syncDurationControls('manual'));
+      
+            const saveBtn = document.getElementById('btn-save-task');
       if (saveBtn) {
         saveBtn.onclick = () => {
           const title = document.getElementById('task-input-title')?.value?.trim();

@@ -2078,17 +2078,6 @@
       return { ...seed, timeFormat: '12h', scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG, timeFormat: '12h' } };
     }
 
-    const state = {
-      ...loadState(),
-      activeTab: 'dashboard',
-      activeModal: null, // { name, data }
-      banner: null, // { text, type }
-      focus: null, // { taskId, title, category, plannedSec, accumulatedSec, isRunning }
-      timeline: [],
-      timelineView: 'agenda', // 'agenda' (default, non-overlapping) or 'grid' (hour scale)
-      currentTime: new Date(),
-      viewDate: getTodayISO(), // Date being viewed/planned (defaults to Today)
-    };
   const state = {
     ...loadState(),
     activeTab: 'dashboard',

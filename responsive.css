@@ -1,0 +1,364 @@
+/* ==========================================================================
+   Adapt Planner — Gen-Z Modern Responsive Stylesheet
+   Mobile-first polish, bottom dock, bento layouts, and fluid adaptations
+   ========================================================================== */
+
+/* 1. Fluid Typography & Container Scaling */
+@media (max-width: 768px) {
+  html, body {
+    font-size: 13.5px;
+  }
+
+  .main-content {
+    padding: 14px 12px 90px 12px; /* Extra bottom padding for mobile navigation */
+  }
+
+  .card {
+    padding: 16px;
+    border-radius: var(--radius-md);
+  }
+
+  .dashboard-hero {
+    padding: 18px 16px;
+    border-radius: var(--radius-lg);
+  }
+
+  .hero-headline {
+    font-size: 20px;
+  }
+
+  .countdown-card {
+    min-width: 100%;
+    text-align: left;
+    margin-top: 10px;
+  }
+
+  .countdown-val {
+    font-size: 20px;
+  }
+}
+
+/* 2. Floating Header & Mobile Nav Optimization */
+@media (max-width: 860px) {
+  .nav-header {
+    padding: 0 12px;
+  }
+
+  .nav-container {
+    min-height: 56px;
+    padding: 6px 0;
+    gap: 8px;
+  }
+
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+  }
+
+  .brand-title {
+    font-size: 17px;
+  }
+
+  .live-clock {
+    padding: 3px 9px;
+    font-size: 10.5px;
+  }
+
+  .streak-badge {
+    padding: 3px 9px;
+    font-size: 11px;
+  }
+
+  .streak-label {
+    display: none;
+  }
+
+  .user-name-text {
+    max-width: 60px;
+  }
+
+  /* Horizontal smooth scroll for tabs on mobile/tablet */
+  .nav-tabs {
+    order: 3;
+    width: 100%;
+    margin-top: 2px;
+    padding: 4px;
+    border-radius: var(--radius-md);
+    background: rgba(10, 15, 28, 0.7);
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+
+  .nav-tab-btn {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    padding: 6px 11px;
+    font-size: 12px;
+  }
+}
+
+/* 3. Dashboard Bento Grid Responsive Layout */
+@media (max-width: 1024px) {
+  .dashboard-main-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-top-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .dashboard-control-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .control-left, .control-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .pills-container {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pill-btn {
+    flex-shrink: 0;
+  }
+
+  .timeline-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .timeline-view-switch {
+    width: 100%;
+    display: flex;
+  }
+
+  .view-switch-btn {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+/* 4. Timeline Schedule Mobile Enhancements */
+@media (max-width: 768px) {
+  .timeline-gutter {
+    width: 48px;
+  }
+
+  .gutter-time-text {
+    font-size: 8.5px;
+    padding-left: 4px;
+  }
+
+  .timeline-track {
+    padding: 0 6px;
+  }
+
+  .timeline-block {
+    left: 4px;
+    right: 4px;
+    padding: 6px 8px;
+    border-radius: 8px;
+  }
+
+  .block-title {
+    font-size: 11.5px;
+  }
+
+  .agenda-card {
+    padding: 12px 14px;
+    border-radius: 12px;
+  }
+
+  .agenda-title {
+    font-size: 13.5px;
+  }
+
+  .agenda-actions {
+    gap: 6px;
+  }
+
+  .agenda-actions .btn {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
+
+/* 5. Tasks Page Mobile Optimization */
+@media (max-width: 768px) {
+  .tasks-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .metric-box {
+    padding: 10px 12px;
+  }
+
+  .metric-value {
+    font-size: 20px;
+  }
+
+  .toolbar-top-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .search-box {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .task-card {
+    padding: 12px 14px;
+  }
+
+  .task-card-main {
+    gap: 10px;
+  }
+
+  .task-title {
+    font-size: 14px;
+  }
+}
+
+/* 6. DSA Sheet Mobile & Tablet Grid */
+@media (max-width: 1100px) {
+  .dsa-main-grid-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .dsa-subnav-sidebar {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+  }
+
+  .dsa-subnav-link {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 6px 12px;
+  }
+
+  .dsa-widgets-column {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dsa-roadmap-banner {
+    padding: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .dsa-problem-card {
+    padding: 10px 12px;
+  }
+}
+
+/* 7. Weekly Calendar & Timetable Strip */
+@media (max-width: 768px) {
+  .week-strip-grid {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+
+  .week-day-card {
+    flex: 0 0 100px;
+    scroll-snap-align: start;
+    padding: 10px 8px;
+  }
+}
+
+/* 8. Modern Mobile Bottom Sheet for Modals */
+@media (max-width: 640px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 24px 24px 0 0 !important;
+    max-height: 88vh;
+    animation: modalSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+    padding: 20px 16px 28px 16px;
+  }
+
+  .modal-content::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  @keyframes modalSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .modal-header {
+    padding-bottom: 12px;
+  }
+
+  .modal-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+  }
+}
+
+/* 9. Micro-Animations & Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

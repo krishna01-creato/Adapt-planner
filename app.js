@@ -181,11 +181,10 @@
 
   const dsaUIState = {
     search: '',
+    filter: 'all', // 'all' | 'mastered' | 'in-progress'
+    sortBy: 'default', // 'default' | 'solved' | 'in-progress' | 'alpha'
     difficulty: 'all', // 'all' | 'Easy' | 'Medium' | 'Hard'
-    status: 'all', // 'all' | 'solved' | 'in-progress' | 'not-started' | 'starred'
-    view: 'sheet', // 'sheet' | 'cards'
-    expandedTopics: {}, // id -> boolean
-    activeSubSheet: 'dsa', // 'dsa' | 'dp'
+    status: 'all',
     activeTimerProblemId: null,
   };
 
@@ -221,99 +220,101 @@
   function getDefaultDSAProblemsForTopic(topicName) {
     const t = (topicName || '').toLowerCase();
     
-    // Day 1 : Array (Part 1) - EXACT from Screenshot 2
-    if (t.includes('day 1') || (t.includes('array') && t.includes('part 1'))) {
+    // Arrays & Two Pointers (6/6 solved) - Mastered
+    if (t.includes('two pointer') || t.includes('array')) {
       return [
-        { id: 'p-d1-1', title: 'Repeat & missing number', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://www.geeksforgeeks.org/find-a-repeating-and-a-missing-number/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon'], note: 'Mathematical sum and square-sum equations.' },
-        { id: 'p-d1-2', title: 'Merge 2 sorted array without extra space', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/merge-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Adobe', 'Amazon', '+9'], note: 'Gap method or insertion from end.' },
-        { id: 'p-d1-3', title: 'Single Number', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/single-number/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Adobe', 'Google', '+8'], note: 'XOR of all elements cancels duplicates in O(N).' },
-        { id: 'p-d1-4', title: 'Stock Buy & Sell', difficulty: 'Easy', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/best-time-to-buy-and-sell-stock/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Walmart', '+15'], note: 'Single pass tracking minimum buy price.' },
-        { id: 'p-d1-5', title: 'Pow (x^n)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/powx-n/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+6'], note: 'Binary exponentiation in O(log N).' },
-        { id: 'p-d1-6', title: 'Majority Element', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/majority-element/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon'], note: "Boyer-Moore Voting Algorithm in O(N)." },
+        { id: 'p-arr-1', title: "Maximum Subarray Sum (Kadane's Algorithm)", difficulty: 'Easy', status: 'done', starred: true, link: 'https://leetcode.com/problems/maximum-subarray/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+12'], note: "Track maxEndingHere and maxSoFar. Reset if negative." },
+        { id: 'p-arr-2', title: 'Sort Colors (Dutch National Flag)', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/sort-colors/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Salesforce', '+8'], note: "3 pointers (low, mid, high) in one pass." },
+        { id: 'p-arr-3', title: 'Two Sum II - Input Array Is Sorted', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/two-sum-ii-input-array-is-sorted/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+6'], note: "Two pointer convergence from left and right." },
+        { id: 'p-arr-4', title: '3Sum - Find All Unique Triplets', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/3sum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+14'], note: "Sort array, fix one element, use Two Pointers for remaining." },
+        { id: 'p-arr-5', title: 'Container With Most Water', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/container-with-most-water/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Google', '+10'], note: "Move pointer at smaller height inward." },
+        { id: 'p-arr-6', title: 'Trapping Rain Water', difficulty: 'Hard', status: 'done', starred: true, link: 'https://leetcode.com/problems/trapping-rain-water/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon', '+18'], note: "Two pointers with leftMax and rightMax bounds." },
       ];
     }
 
-    // Day 2 : Array (Part 2)
-    if (t.includes('day 2') || (t.includes('array') && t.includes('part 2'))) {
+    // Sliding Window & Substrings (4/4 solved) - Mastered
+    if (t.includes('sliding window') || t.includes('substring')) {
       return [
-        { id: 'p-d2-1', title: "Maximum Subarray Sum (Kadane's Algorithm)", difficulty: 'Easy', status: 'done', starred: true, link: 'https://leetcode.com/problems/maximum-subarray/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+12'], note: "Track maxEndingHere and maxSoFar. Reset if negative." },
-        { id: 'p-d2-2', title: 'Trapping Rain Water', difficulty: 'Hard', status: 'in-progress', starred: true, link: 'https://leetcode.com/problems/trapping-rain-water/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon', '+18'], note: "Two pointers with leftMax and rightMax bounds." },
-        { id: 'p-d2-3', title: 'Two Sum II - Input Array Is Sorted', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/two-sum-ii-input-array-is-sorted/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+6'], note: "Two pointer convergence from left and right." },
-        { id: 'p-d2-4', title: 'Container With Most Water', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/container-with-most-water/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Google', '+10'], note: "Move pointer at smaller height inward." },
-        { id: 'p-d2-5', title: '3Sum - Find All Unique Triplets', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/3sum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+14'], note: "Sort array, fix one element, use Two Pointers for remaining." },
-        { id: 'p-d2-6', title: 'Sort Colors (Dutch National Flag)', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/sort-colors/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Salesforce', '+8'], note: "3 pointers (low, mid, high) in one pass." },
+        { id: 'p-sw-1', title: 'Longest Substring Without Repeating Characters', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/longest-substring-without-repeating-characters/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+20'], note: "Hash map of last seen indices + left pointer jump." },
+        { id: 'p-sw-2', title: 'Minimum Window Substring', difficulty: 'Hard', status: 'done', starred: true, link: 'https://leetcode.com/problems/minimum-window-substring/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+16'], note: "Frequency map with required character counter." },
+        { id: 'p-sw-3', title: 'Longest Repeating Character Replacement', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/longest-repeating-character-replacement/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+7'], note: "windowSize - maxFreq <= k invariant." },
+        { id: 'p-sw-4', title: 'Sliding Window Maximum', difficulty: 'Hard', status: 'done', starred: true, link: 'https://leetcode.com/problems/sliding-window-maximum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Citadel', '+12'], note: "Monotonic decreasing deque storing indices." },
       ];
     }
 
-    // Day 3 : Sliding Window & Substrings
-    if (t.includes('day 3') || t.includes('sliding window') || t.includes('two pointer')) {
+    // Binary Search On Answers (3/8 solved) - In Progress
+    if (t.includes('binary search')) {
       return [
-        { id: 'p-d3-1', title: 'Longest Substring Without Repeating Characters', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/longest-substring-without-repeating-characters/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+20'], note: "Hash map of last seen indices + left pointer jump." },
-        { id: 'p-d3-2', title: 'Minimum Window Substring', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/minimum-window-substring/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+16'], note: "Frequency map with required character counter." },
-        { id: 'p-d3-3', title: 'Longest Repeating Character Replacement', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/longest-repeating-character-replacement/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+7'], note: "windowSize - maxFreq <= k invariant." },
-        { id: 'p-d3-4', title: 'Sliding Window Maximum', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/sliding-window-maximum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Citadel', '+12'], note: "Monotonic decreasing deque storing indices." },
-        { id: 'p-d3-5', title: 'Permutation in String', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/permutation-in-string/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Amazon', '+9'], note: "Fixed size sliding window comparing frequency arrays." },
-        { id: 'p-d3-6', title: 'Subarray Product Less Than K', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/subarray-product-less-than-k/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', '+4'], note: "Shrink left while product >= k; add (right - left + 1)." },
+        { id: 'p-bs-1', title: 'Search in Rotated Sorted Array', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/search-in-rotated-sorted-array/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+15'], note: "Identify which half is sorted, check if target lies within." },
+        { id: 'p-bs-2', title: 'Find Minimum in Rotated Sorted Array', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/find-minimum-in-rotated-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+10'], note: "Compare mid with right to determine inflection." },
+        { id: 'p-bs-3', title: 'Koko Eating Bananas', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/koko-eating-bananas/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+8'], note: "Binary search on speed space [1, max(piles)]." },
+        { id: 'p-bs-4', title: 'Allocate Minimum Pages (Painter Partition)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/allocate-minimum-number-of-pages0937/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Flipkart', '+11'], note: "Feasibility check on max page allocation per student." },
+        { id: 'p-bs-5', title: 'Median of Two Sorted Arrays', difficulty: 'Hard', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/median-of-two-sorted-arrays/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Apple', '+18'], note: "Partition both arrays simultaneously in O(log(min(N, M)))." },
+        { id: 'p-bs-6', title: 'Single Element in a Sorted Array', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/single-element-in-a-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+7'], note: "Compare index parity with mid." },
+        { id: 'p-bs-7', title: 'Capacity To Ship Packages Within D Days', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/capacity-to-ship-packages-within-d-days/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple'], note: 'Binary search on minimum cargo capacity.' },
+        { id: 'p-bs-8', title: 'Aggressive Cows (Distance Optimization)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/aggressive-cows/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Citadel'], note: 'Binary search on minimum allowed gap.' },
       ];
     }
 
-    // Day 4 : Binary Search & Math
-    if (t.includes('day 4') || t.includes('binary search')) {
+    // Linked Lists & Fast/Slow (4/4 solved) - Mastered
+    if (t.includes('linked list')) {
       return [
-        { id: 'p-d4-1', title: 'Search in Rotated Sorted Array', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/search-in-rotated-sorted-array/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+15'], note: "Identify which half is sorted, check if target lies within." },
-        { id: 'p-d4-2', title: 'Find Minimum in Rotated Sorted Array', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/find-minimum-in-rotated-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+10'], note: "Compare mid with right to determine inflection." },
-        { id: 'p-d4-3', title: 'Koko Eating Bananas', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/koko-eating-bananas/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+8'], note: "Binary search on speed space [1, max(piles)]." },
-        { id: 'p-d4-4', title: 'Allocate Minimum Pages (Painter Partition)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/allocate-minimum-number-of-pages0937/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Flipkart', '+11'], note: "Feasibility check on max page allocation per student." },
-        { id: 'p-d4-5', title: 'Median of Two Sorted Arrays', difficulty: 'Hard', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/median-of-two-sorted-arrays/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Apple', '+18'], note: "Partition both arrays simultaneously in O(log(min(N, M)))." },
-        { id: 'p-d4-6', title: 'Single Element in a Sorted Array', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/single-element-in-a-sorted-array/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+7'], note: "Compare index parity with mid." },
+        { id: 'p-ll-1', title: 'Reverse a Linked List', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/reverse-linked-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Amazon', '+15'], note: "3 pointers (prev, curr, next)." },
+        { id: 'p-ll-2', title: "Linked List Cycle (Floyd's Tortoise)", difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/linked-list-cycle/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+10'], note: "Slow moves 1 step, fast moves 2 steps." },
+        { id: 'p-ll-3', title: 'Merge Two Sorted Lists', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/merge-two-sorted-lists/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+12'], note: "Dummy head pointer comparison." },
+        { id: 'p-ll-4', title: 'Remove Nth Node From End of List', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/remove-nth-node-from-end-of-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Apple', '+8'], note: "Fast pointer given N-step head start." },
       ];
     }
 
-    // Day 5 : Linked Lists
-    if (t.includes('day 5') || t.includes('linked list')) {
+    // Binary Trees & BSTs (4/8 solved) - In Progress
+    if (t.includes('tree') || t.includes('bst')) {
       return [
-        { id: 'p-d5-1', title: 'Reverse a Linked List', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/reverse-linked-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Amazon', '+15'], note: "3 pointers (prev, curr, next)." },
-        { id: 'p-d5-2', title: "Linked List Cycle (Floyd's Tortoise)", difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/linked-list-cycle/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+10'], note: "Slow moves 1 step, fast moves 2 steps." },
-        { id: 'p-d5-3', title: 'Merge Two Sorted Lists', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/merge-two-sorted-lists/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+12'], note: "Dummy head pointer comparison." },
-        { id: 'p-d5-4', title: 'Remove Nth Node From End of List', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/remove-nth-node-from-end-of-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Apple', '+8'], note: "Fast pointer given N-step head start." },
-        { id: 'p-d5-5', title: 'Merge k Sorted Lists', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/merge-k-sorted-lists/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Google', '+16'], note: "Min-heap storing k node heads." },
-        { id: 'p-d5-6', title: 'LRU Cache Implementation', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/lru-cache/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon', '+25'], note: "Doubly Linked List + Hash Map for O(1) operations." },
+        { id: 'p-bt-1', title: 'Maximum Depth of Binary Tree', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/maximum-depth-of-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+8'], note: "1 + max(depth(left), depth(right))." },
+        { id: 'p-bt-2', title: 'Invert Binary Tree', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/invert-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+10'], note: "Swap left and right children recursively." },
+        { id: 'p-bt-3', title: 'Diameter of Binary Tree', difficulty: 'Easy', status: 'done', starred: true, link: 'https://leetcode.com/problems/diameter-of-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+12'], note: "Track max(leftHeight + rightHeight) at every node." },
+        { id: 'p-bt-4', title: 'Lowest Common Ancestor in BST', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/lowest-common-ancestor-of-a-binary-search-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+14'], note: "First node where p and q diverge in value." },
+        { id: 'p-bt-5', title: 'Binary Tree Level Order Traversal', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/binary-tree-level-order-traversal/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+15'], note: "Queue BFS processing level by level." },
+        { id: 'p-bt-6', title: 'Validate Binary Search Tree', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/validate-binary-search-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+18'], note: "Carry min and max valid bounds down recursion." },
+        { id: 'p-bt-7', title: 'Construct Binary Tree from Preorder & Inorder', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/construct-binary-tree-from-preorder-and-inorder-traversal/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google'], note: 'Root is first in preorder, partition inorder.' },
+        { id: 'p-bt-8', title: 'Flatten Binary Tree to Linked List', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/flatten-binary-tree-to-linked-list/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Microsoft', 'Apple'], note: 'Morris traversal or reverse post-order.' },
       ];
     }
 
-    // Day 6 : Binary Trees & BSTs
-    if (t.includes('day 6') || t.includes('tree') || t.includes('bst')) {
+    // Dynamic Programming (1D/2D) (4/8 solved) - In Progress
+    if (t.includes('dynamic programming') || t.includes('dp')) {
       return [
-        { id: 'p-d6-1', title: 'Maximum Depth of Binary Tree', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/maximum-depth-of-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple', '+8'], note: "1 + max(depth(left), depth(right))." },
-        { id: 'p-d6-2', title: 'Invert Binary Tree', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/invert-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+10'], note: "Swap left and right children recursively." },
-        { id: 'p-d6-3', title: 'Diameter of Binary Tree', difficulty: 'Easy', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/diameter-of-binary-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+12'], note: "Track max(leftHeight + rightHeight) at every node." },
-        { id: 'p-d6-4', title: 'Lowest Common Ancestor in BST', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/lowest-common-ancestor-of-a-binary-search-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+14'], note: "First node where p and q diverge in value." },
-        { id: 'p-d6-5', title: 'Binary Tree Level Order Traversal', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/binary-tree-level-order-traversal/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+15'], note: "Queue BFS processing level by level." },
-        { id: 'p-d6-6', title: 'Validate Binary Search Tree', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/validate-binary-search-tree/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+18'], note: "Carry min and max valid bounds down recursion." },
+        { id: 'p-dp-1', title: 'Climbing Stairs', difficulty: 'Easy', status: 'done', starred: false, link: 'https://leetcode.com/problems/climbing-stairs/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+12'], note: "Fibonacci recurrence relation: dp[i] = dp[i-1] + dp[i-2]." },
+        { id: 'p-dp-2', title: 'Coin Change (Minimum Coins)', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/coin-change/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+16'], note: "Bottom-up 1D DP: dp[i] = min(dp[i], 1 + dp[i - coin])." },
+        { id: 'p-dp-3', title: 'Longest Increasing Subsequence (LIS)', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/longest-increasing-subsequence/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+14'], note: "O(N log N) patience sorting with binary search." },
+        { id: 'p-dp-4', title: '0/1 Knapsack Problem', difficulty: 'Medium', status: 'done', starred: true, link: 'https://practice.geeksforgeeks.org/problems/0-1-knapsack-problem0927/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Flipkart', 'Amazon', '+12'], note: "Pick or leave decision with 1D reverse capacity loop." },
+        { id: 'p-dp-5', title: 'Longest Common Subsequence (LCS)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/longest-common-subsequence/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+10'], note: "2D grid match: 1 + diag if match, else max(up, left)." },
+        { id: 'p-dp-6', title: 'Edit Distance (Levenshtein)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/edit-distance/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+15'], note: "Min of insert, delete, and replace operations." },
+        { id: 'p-dp-7', title: 'Maximum Product Subarray', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/maximum-product-subarray/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft'], note: 'Track min and max product simultaneously due to negatives.' },
+        { id: 'p-dp-8', title: 'Partition Equal Subset Sum', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/partition-equal-subset-sum/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta'], note: 'Subset sum target equal to totalSum / 2.' },
       ];
     }
 
-    // Day 7 : Dynamic Programming
-    if (t.includes('day 7') || t.includes('dynamic programming') || t.includes('dp')) {
+    // Graphs & Shortest Path (6/6 solved) - Mastered
+    if (t.includes('graph')) {
       return [
-        { id: 'p-d7-1', title: 'Climbing Stairs', difficulty: 'Easy', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/climbing-stairs/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+12'], note: "Fibonacci recurrence relation: dp[i] = dp[i-1] + dp[i-2]." },
-        { id: 'p-d7-2', title: 'Coin Change (Minimum Coins)', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/coin-change/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+16'], note: "Bottom-up 1D DP: dp[i] = min(dp[i], 1 + dp[i - coin])." },
-        { id: 'p-d7-3', title: 'Longest Increasing Subsequence (LIS)', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/longest-increasing-subsequence/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+14'], note: "O(N log N) patience sorting with binary search." },
-        { id: 'p-d7-4', title: '0/1 Knapsack Problem', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/0-1-knapsack-problem0927/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Flipkart', 'Amazon', '+12'], note: "Pick or leave decision with 1D reverse capacity loop." },
-        { id: 'p-d7-5', title: 'Longest Common Subsequence (LCS)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/longest-common-subsequence/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+10'], note: "2D grid match: 1 + diag if match, else max(up, left)." },
-        { id: 'p-d7-6', title: 'Edit Distance (Levenshtein)', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/edit-distance/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+15'], note: "Min of insert, delete, and replace operations." },
+        { id: 'p-gr-1', title: 'Number of Islands', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/number-of-islands/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+22'], note: "Grid DFS/BFS sinking visited land '1' to '0'." },
+        { id: 'p-gr-2', title: 'Clone Graph', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/clone-graph/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+12'], note: "Map old node to new node during BFS/DFS." },
+        { id: 'p-gr-3', title: 'Course Schedule (Kahn Topological Sort)', difficulty: 'Medium', status: 'done', starred: true, link: 'https://leetcode.com/problems/course-schedule/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+16'], note: "In-degree array + BFS queue processing zero in-degrees." },
+        { id: 'p-gr-4', title: "Dijkstra's Shortest Path Algorithm", difficulty: 'Medium', status: 'done', starred: true, link: 'https://practice.geeksforgeeks.org/problems/implementing-dijkstra-set-1-adjacency-matrix/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+14'], note: "Priority queue with (distance, node) pairs." },
+        { id: 'p-gr-5', title: 'Rotting Oranges (Multi-Source BFS)', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/rotting-oranges/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+15'], note: "Push all rotten oranges initially into BFS queue." },
+        { id: 'p-gr-6', title: 'Alien Dictionary', difficulty: 'Hard', status: 'done', starred: true, link: 'https://leetcode.com/problems/alien-dictionary/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+14'], note: "Compare adjacent word prefixes to build directed edges." },
       ];
     }
 
-    // Day 8 : Graphs & Algorithms
-    if (t.includes('day 8') || t.includes('graph')) {
+    // Heaps & Greedy Intervals (1/6 solved) - In Progress
+    if (t.includes('heap') || t.includes('greedy') || t.includes('interval')) {
       return [
-        { id: 'p-d8-1', title: 'Number of Islands', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/number-of-islands/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Google', '+22'], note: "Grid DFS/BFS sinking visited land '1' to '0'." },
-        { id: 'p-d8-2', title: 'Clone Graph', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/clone-graph/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Amazon', '+12'], note: "Map old node to new node during BFS/DFS." },
-        { id: 'p-d8-3', title: 'Course Schedule (Kahn Topological Sort)', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/course-schedule/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+16'], note: "In-degree array + BFS queue processing zero in-degrees." },
-        { id: 'p-d8-4', title: "Dijkstra's Shortest Path Algorithm", difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://practice.geeksforgeeks.org/problems/implementing-dijkstra-set-1-adjacency-matrix/1', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber', '+14'], note: "Priority queue with (distance, node) pairs." },
-        { id: 'p-d8-5', title: 'Rotting Oranges (Multi-Source BFS)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/rotting-oranges/', article: 'Coming Soon', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Microsoft', '+15'], note: "Push all rotten oranges initially into BFS queue." },
-        { id: 'p-d8-6', title: 'Alien Dictionary', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/alien-dictionary/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Meta', '+14'], note: "Compare adjacent word prefixes to build directed edges." },
+        { id: 'p-hp-1', title: 'Kth Largest Element in an Array', difficulty: 'Medium', status: 'done', starred: false, link: 'https://leetcode.com/problems/kth-largest-element-in-an-array/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Apple'], note: 'Min-heap of size K or QuickSelect.' },
+        { id: 'p-hp-2', title: 'Top K Frequent Elements', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/top-k-frequent-elements/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Amazon'], note: 'Bucket sort or frequency min-heap.' },
+        { id: 'p-hp-3', title: 'Merge Intervals', difficulty: 'Medium', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/merge-intervals/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Meta', 'Microsoft'], note: 'Sort by start time and merge overlaps.' },
+        { id: 'p-hp-4', title: 'Non-overlapping Intervals', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/non-overlapping-intervals/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Google', 'Uber'], note: 'Greedy interval scheduling by earliest end time.' },
+        { id: 'p-hp-5', title: 'Find Median from Data Stream', difficulty: 'Hard', status: 'not-started', starred: true, link: 'https://leetcode.com/problems/find-median-from-data-stream/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Citadel', 'Apple'], note: 'Two heaps (max-heap left, min-heap right).' },
+        { id: 'p-hp-6', title: 'Task Scheduler (CPU Cooling Intervals)', difficulty: 'Medium', status: 'not-started', starred: false, link: 'https://leetcode.com/problems/task-scheduler/', article: 'Read', youtube: 'https://youtube.com', timer: '30Min', companies: ['Amazon', 'Meta'], note: 'Max frequency idle slot counting.' },
       ];
     }
 
@@ -1622,14 +1623,14 @@
     ];
 
     const dsaTopics = [
-      { id: 'dsa-1', name: 'Day 1 : Array (Part 1)', status: 'in-progress', problems: getDefaultDSAProblemsForTopic('Day 1 : Array (Part 1)'), problemsSolved: 0, note: 'Foundational array questions, prefix sum & bit manipulation.' },
-      { id: 'dsa-2', name: 'Day 2 : Array (Part 2)', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 2 : Array (Part 2)'), problemsSolved: 0, note: 'Kadane algorithm & two pointer convergence.' },
-      { id: 'dsa-3', name: 'Day 3 : Two Pointers & Sliding Window', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 3 : Two Pointers & Sliding Window'), problemsSolved: 0, note: 'Variable size window & hash map index trackers.' },
-      { id: 'dsa-4', name: 'Day 4 : Binary Search & Math', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 4 : Binary Search & Math'), problemsSolved: 0, note: 'Rotated arrays & search on monotonic answer space.' },
-      { id: 'dsa-5', name: 'Day 5 : Linked Lists', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 5 : Linked Lists'), problemsSolved: 0, note: 'Fast & slow pointers, reversal & LRU cache.' },
-      { id: 'dsa-6', name: 'Day 6 : Binary Trees & BSTs', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 6 : Binary Trees & BSTs'), problemsSolved: 0, note: 'LCA, diameter, and level order traversal.' },
-      { id: 'dsa-7', name: 'Day 7 : Dynamic Programming', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 7 : Dynamic Programming'), problemsSolved: 0, note: '1D & 2D memoization, knapsack & subsequence patterns.' },
-      { id: 'dsa-8', name: 'Day 8 : Graphs & Algorithms', status: 'not-started', problems: getDefaultDSAProblemsForTopic('Day 8 : Graphs & Algorithms'), problemsSolved: 0, note: 'BFS/DFS grid traversal, topological sort & Dijkstra.' },
+      { id: 'dsa-1', name: 'Arrays & Two Pointers', status: 'done', problems: getDefaultDSAProblemsForTopic('Arrays & Two Pointers'), problemsSolved: 6, note: 'Kadane algorithm & Dutch National Flag.' },
+      { id: 'dsa-2', name: 'Sliding Window & Substrings', status: 'done', problems: getDefaultDSAProblemsForTopic('Sliding Window & Substrings'), problemsSolved: 4, note: 'Variable size window pattern mastered.' },
+      { id: 'dsa-3', name: 'Binary Search On Answers', status: 'in-progress', problems: getDefaultDSAProblemsForTopic('Binary Search On Answers'), problemsSolved: 3, note: 'Practice Painter Partition & Koko Bananas.' },
+      { id: 'dsa-4', name: 'Linked Lists & Fast/Slow', status: 'done', problems: getDefaultDSAProblemsForTopic('Linked Lists & Fast/Slow'), problemsSolved: 4, note: 'Cycle detection and reversal patterns.' },
+      { id: 'dsa-5', name: 'Binary Trees & BSTs', status: 'in-progress', problems: getDefaultDSAProblemsForTopic('Binary Trees & BSTs'), problemsSolved: 4, note: 'Lowest Common Ancestor & Diameter.' },
+      { id: 'dsa-6', name: 'Dynamic Programming (1D/2D)', status: 'in-progress', problems: getDefaultDSAProblemsForTopic('Dynamic Programming (1D/2D)'), problemsSolved: 4, note: 'Grid DP and 0/1 knapsack variations.' },
+      { id: 'dsa-7', name: 'Graphs & Shortest Path', status: 'done', problems: getDefaultDSAProblemsForTopic('Graphs & Shortest Path'), problemsSolved: 6, note: 'Dijkstra algorithm & topological sort.' },
+      { id: 'dsa-8', name: 'Heaps & Greedy Intervals', status: 'in-progress', problems: getDefaultDSAProblemsForTopic('Heaps & Greedy Intervals'), problemsSolved: 1, note: 'Interval scheduling & median finding.' },
     ];
 
     const collegeSubjects = [
@@ -1940,7 +1941,12 @@
           })) : seed.studySessions;
 
           // Normalize DSA topics with interview roadmap problems
-          const dsaTopics = Array.isArray(parsed.dsaTopics) ? parsed.dsaTopics.map((d, idx) => {
+          let rawDsa = Array.isArray(parsed.dsaTopics) && parsed.dsaTopics.length > 0 ? parsed.dsaTopics : seed.dsaTopics;
+          // Auto-migrate legacy topic structure if user has old seed from previous session
+          if (rawDsa.some(d => (d.name || '').includes('Day 1 : Array'))) {
+            rawDsa = seed.dsaTopics;
+          }
+          const dsaTopics = rawDsa.map((d, idx) => {
             const defaultProbs = getDefaultDSAProblemsForTopic(d.name);
             const problems = Array.isArray(d.problems) && d.problems.length > 0
               ? d.problems.map((p, pIdx) => {
@@ -1959,15 +1965,18 @@
               ? problems.filter(p => p.status === 'done').length
               : Math.max(0, Number(d.problemsSolved) || 0);
 
+            const isDone = problems.length > 0 ? computedSolved >= problems.length : d.status === 'done';
+            const isInProg = !isDone && (computedSolved > 0 || d.status === 'in-progress');
+
             return {
               id: d.id || `dsa-${Date.now()}-${idx}`,
-              name: d.name || `Day ${idx + 1} : DSA Topic`,
-              status: ['not-started', 'in-progress', 'done'].includes(d.status) ? d.status : 'not-started',
+              name: d.name || `Topic ${idx + 1}`,
+              status: isDone ? 'done' : (isInProg ? 'in-progress' : 'not-started'),
               problemsSolved: computedSolved,
               problems,
               note: d.note || '',
             };
-          }) : seed.dsaTopics;
+          });
 
           const collegeSubjects = Array.isArray(parsed.collegeSubjects) ? parsed.collegeSubjects : seed.collegeSubjects;
           const lostTimeEvents = Array.isArray(parsed.lostTimeEvents) ? parsed.lostTimeEvents : seed.lostTimeEvents;

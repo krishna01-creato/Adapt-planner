@@ -8,10 +8,176 @@
   'use strict';
 
   // =========================================================================
-  // 1. CONSTANTS & CONFIG
+  // 1. AUTHENTICATION & SECURITY MODULE
   // =========================================================================
-  const googleId = localStorage.getItem('adapt_google_id');
-  const STORAGE_KEY = googleId ? `adapt_study_planner_state_${googleId}` : 'adapt_study_planner_state_v2';
+  const USERS_DB_KEY = 'adapt_users_db';
+  const AUTH_SESSION_KEY = 'adapt_auth_session';
+
+  async function hashPassword(password, salt) {
+    if (window.crypto && window.crypto.subtle) {
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(salt + ':' + password + ':adapt_secure_pepper_2026');
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      } catch (e) {
+        console.warn('Subtle crypto error, using fallback:', e);
+      }
+    }
+    // Deterministic fallback hash
+    let hash = 0;
+    const str = salt + ':' + password + ':pepper';
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash |= 0;
+    }
+    return 'h_' + Math.abs(hash).toString(16);
+  }
+
+  function generateRandomHex(len = 16) {
+    if (window.crypto && window.crypto.getRandomValues) {
+      const arr = new Uint8Array(len);
+      window.crypto.getRandomValues(arr);
+      return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return 'tok_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function getUsersDB() {
+    try {
+      const raw = localStorage.getItem(USERS_DB_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to parse users DB:', e);
+    }
+    return [];
+  }
+
+  function saveUsersDB(users) {
+    try {
+      localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+    } catch (e) {
+      console.error('Failed to save users DB:', e);
+    }
+  }
+
+  // Ensure default demo user exists in DB
+  async function ensureDemoUser() {
+    const users = getUsersDB();
+    if (!users.some(u => u.email.toLowerCase() === 'demo@adapt.study')) {
+      const salt = generateRandomHex(12);
+      const passwordHash = await hashPassword('password123', salt);
+      users.push({
+        id: 'usr_demo_student',
+        name: 'Demo Student',
+        email: 'demo@adapt.study',
+        salt,
+        passwordHash,
+        createdAt: getTodayISO(),
+        isDemo: true,
+      });
+      saveUsersDB(users);
+
+      // Seed initial demo data for this user if not already set
+      const demoKey = `adapt_study_planner_state_usr_demo_student`;
+      if (!localStorage.getItem(demoKey)) {
+        const seed = getSeedData();
+        localStorage.setItem(demoKey, JSON.stringify(seed));
+      }
+    }
+  }
+
+  function getAuthSession() {
+    try {
+      const raw = localStorage.getItem(AUTH_SESSION_KEY) || sessionStorage.getItem(AUTH_SESSION_KEY);
+      if (raw) {
+        const session = JSON.parse(raw);
+        if (session && session.userId && session.token && session.expiresAt) {
+          if (Date.now() < session.expiresAt) {
+            const users = getUsersDB();
+            const user = users.find(u => u.id === session.userId);
+            if (user) {
+              return { ...session, name: user.name, email: user.email };
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse auth session:', e);
+    }
+    // Clean expired / invalid session
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+    return null;
+  }
+
+  function setAuthSession(user, remember = true) {
+    const duration = remember ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const session = {
+      token: generateRandomHex(24),
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      remember: !!remember,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + duration,
+    };
+    if (remember) {
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+      sessionStorage.removeItem(AUTH_SESSION_KEY);
+    } else {
+      sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+      localStorage.removeItem(AUTH_SESSION_KEY);
+    }
+    return session;
+  }
+
+  function clearAuthSession() {
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+  }
+
+  function getUserInitials(name) {
+    if (!name) return 'U';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }
+
+  function getPasswordStrength(password) {
+    if (!password) return { score: 0, label: 'None', color: '#64748b', pct: 0 };
+    let score = 0;
+    if (password.length >= 6) score += 1;
+    if (password.length >= 8) score += 1;
+    if (/[A-Z]/.test(password)) score += 1;
+    if (/[0-9]/.test(password)) score += 1;
+    if (/[^A-Za-z0-9]/.test(password)) score += 1;
+
+    if (score <= 1) return { score: 1, label: 'Weak', color: '#ef4444', pct: 25 };
+    if (score <= 3) return { score: 2, label: 'Moderate', color: '#f59e0b', pct: 60 };
+    return { score: 3, label: 'Strong', color: '#10b981', pct: 100 };
+  }
+
+  function getStorageKey(userId) {
+    return userId ? `adapt_study_planner_state_${userId}` : 'adapt_study_planner_state_v2';
+  }
+
+  const authUIState = {
+    mode: 'signin', // 'signin' | 'signup'
+    error: null,
+    success: null,
+    showPassword: false,
+    showSignupPassword: false,
+    showConfirmPassword: false,
+    loading: false,
+  };
 
   const DEFAULT_CATEGORIES = [
     { id: 'cat-dsa', label: 'DSA & Algorithms', color: '#f59e0b' },
@@ -76,6 +242,7 @@
     gapUtilization: 0.82,
     breakDurationMin: 10,
     breakThresholdMin: 45,
+    timeFormat: '12h',
   };
 
   // =========================================================================
@@ -102,6 +269,230 @@
     const period = h24 >= 12 ? 'PM' : 'AM';
     const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
     return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+  }
+
+  function getTimeFormat() {
+    return (typeof state !== 'undefined' && state && state.scheduleConfig && state.scheduleConfig.timeFormat) ||
+           (typeof state !== 'undefined' && state && state.timeFormat) ||
+           '12h';
+  }
+
+  function formatDisplayTime(timeVal, format = getTimeFormat()) {
+    if (timeVal == null || timeVal === '') return '';
+    const totalMin = typeof timeVal === 'number' ? timeVal : parseTimeToMinutes(timeVal);
+    if (isNaN(totalMin)) return '';
+    if (format === '24h') {
+      return minutesToTime(totalMin);
+    }
+    return formatTime12(totalMin);
+  }
+
+  function convert24hTo12hParts(time24) {
+    if (!time24 || typeof time24 !== 'string') return { displayTime: '', period: 'AM' };
+    const totalMin = parseTimeToMinutes(time24);
+    const roundedMin = Math.round(totalMin);
+    const h24 = Math.floor(roundedMin / 60) % 24;
+    const m = roundedMin % 60;
+    const period = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return { displayTime: `${h12}:${String(m).padStart(2, '0')}`, period };
+  }
+
+  function parse12hTo24h(timeStr, period = 'AM') {
+    if (!timeStr || typeof timeStr !== 'string') return '';
+    let str = timeStr.trim();
+    if (!str) return '';
+    const ampmMatch = str.match(/([ap]\.?m\.?)/i);
+    if (ampmMatch) {
+      period = ampmMatch[1].toUpperCase().includes('P') ? 'PM' : 'AM';
+      str = str.replace(ampmMatch[0], '').trim();
+    }
+    const parts = str.split(':');
+    if (parts.length === 0) return '';
+    let h = parseInt(parts[0], 10);
+    if (isNaN(h)) return '';
+    let m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    if (isNaN(m)) m = 0;
+    m = Math.max(0, Math.min(59, m));
+
+    if (h >= 13 && h <= 23) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+    if (h === 0) {
+      return `00:${String(m).padStart(2, '0')}`;
+    }
+    h = Math.max(1, Math.min(12, h));
+    let h24 = h;
+    if (period.toUpperCase() === 'PM') {
+      h24 = (h === 12) ? 12 : h + 12;
+    } else {
+      h24 = (h === 12) ? 0 : h;
+    }
+    return `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function normalize24hString(timeStr) {
+    if (!timeStr || typeof timeStr !== 'string') return '';
+    const str = timeStr.trim();
+    const parts = str.split(':');
+    if (parts.length < 2) return '';
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return '';
+    if (h < 0 || h > 23 || m < 0 || m > 59) return '';
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function renderTimeInput(id, value24 = '', options = {}) {
+    const is24 = getTimeFormat() === '24h';
+    const compact = !!options.compact;
+    const allowEmpty = !!options.allowEmpty;
+    const clean24 = (value24 && typeof value24 === 'string') ? value24.trim() : '';
+    const { displayTime, period } = convert24hTo12hParts(clean24);
+    const displayValue = clean24 ? (is24 ? clean24 : displayTime) : '';
+    const datalistId = is24 ? 'adapt-time-datalist-24h' : 'adapt-time-datalist-12h';
+    const placeholder = options.placeholder || (is24 ? 'HH:MM' : 'e.g. 9:00');
+
+    return `
+      <div class="time-picker-wrap ${compact ? 'time-picker-compact' : ''}" data-time-id="${id}">
+        <input type="text"
+               class="input-text font-mono time-picker-time"
+               id="${id}-display"
+               value="${displayValue}"
+               placeholder="${placeholder}"
+               list="${datalistId}"
+               autocomplete="off"
+               aria-label="${options.label || id}" />
+        ${!is24 ? `
+          <select class="select-input font-mono time-picker-period" id="${id}-ampm" aria-label="Select AM or PM">
+            <option value="AM" ${period === 'AM' ? 'selected' : ''}>AM</option>
+            <option value="PM" ${period === 'PM' ? 'selected' : ''}>PM</option>
+          </select>
+        ` : ''}
+        ${allowEmpty ? `
+          <button type="button" class="time-picker-clear" id="${id}-clear" title="Clear time" aria-label="Clear time">✕</button>
+        ` : ''}
+        <input type="hidden" id="${id}" value="${clean24}" />
+      </div>
+    `;
+  }
+
+  function initTimeInputs(container = document) {
+    if (!container) return;
+    const wraps = container.querySelectorAll('.time-picker-wrap');
+    const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+
+    wraps.forEach(wrap => {
+      const id = wrap.getAttribute('data-time-id');
+      if (!id) return;
+      const hiddenInp = document.getElementById(id);
+      if (!hiddenInp) return;
+
+      const timeInp = wrap.querySelector('.time-picker-time');
+      const periodSel = wrap.querySelector('.time-picker-period');
+      const clearBtn = wrap.querySelector('.time-picker-clear');
+
+      const is24 = getTimeFormat() === '24h';
+
+      if (hiddenInp._val === undefined) {
+        hiddenInp._val = hiddenInp.getAttribute('value') || '';
+      }
+
+      function updateHiddenFromUI() {
+        const textVal = timeInp ? timeInp.value.trim() : '';
+        if (!textVal) {
+          setHiddenValue('');
+          return;
+        }
+
+        let new24 = '';
+        if (is24) {
+          new24 = normalize24hString(textVal) || (textVal.includes(':') ? textVal : '');
+        } else {
+          const ampmMatch = textVal.match(/([ap]\.?m\.?)/i);
+          let currentPeriod = periodSel ? periodSel.value : 'AM';
+          if (ampmMatch) {
+            currentPeriod = ampmMatch[1].toUpperCase().includes('P') ? 'PM' : 'AM';
+            if (periodSel) periodSel.value = currentPeriod;
+          }
+          new24 = parse12hTo24h(textVal, currentPeriod);
+        }
+
+        setHiddenValue(new24);
+      }
+
+      function setHiddenValue(new24) {
+        if (hiddenInp._val === new24) return;
+        hiddenInp._val = new24;
+        if (nativeDesc && nativeDesc.set) {
+          nativeDesc.set.call(hiddenInp, new24);
+        } else {
+          hiddenInp.setAttribute('value', new24);
+        }
+        hiddenInp.dispatchEvent(new Event('input', { bubbles: true }));
+        hiddenInp.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      function syncUIFromValue(val24) {
+        hiddenInp._val = val24;
+        if (nativeDesc && nativeDesc.set) {
+          nativeDesc.set.call(hiddenInp, val24);
+        }
+        if (!val24) {
+          if (timeInp) timeInp.value = '';
+          return;
+        }
+        if (is24) {
+          if (timeInp) timeInp.value = val24;
+        } else {
+          const { displayTime, period } = convert24hTo12hParts(val24);
+          if (timeInp) timeInp.value = displayTime;
+          if (periodSel) periodSel.value = period;
+        }
+      }
+
+      if (!hiddenInp._timeHooked) {
+        hiddenInp._timeHooked = true;
+        Object.defineProperty(hiddenInp, 'value', {
+          get() {
+            return hiddenInp._val !== undefined ? hiddenInp._val : (nativeDesc ? nativeDesc.get.call(hiddenInp) : '');
+          },
+          set(newV) {
+            syncUIFromValue(String(newV || '').trim());
+          },
+          configurable: true
+        });
+      }
+
+      if (timeInp && !timeInp._bound) {
+        timeInp._bound = true;
+        timeInp.addEventListener('input', updateHiddenFromUI);
+        timeInp.addEventListener('change', () => {
+          updateHiddenFromUI();
+          if (hiddenInp.value) {
+            if (!is24) {
+              const { displayTime } = convert24hTo12hParts(hiddenInp.value);
+              timeInp.value = displayTime;
+            } else {
+              timeInp.value = hiddenInp.value;
+            }
+          }
+        });
+      }
+
+      if (periodSel && !periodSel._bound) {
+        periodSel._bound = true;
+        periodSel.addEventListener('change', updateHiddenFromUI);
+      }
+
+      if (clearBtn && !clearBtn._bound) {
+        clearBtn._bound = true;
+        clearBtn.addEventListener('click', () => {
+          if (timeInp) timeInp.value = '';
+          setHiddenValue('');
+        });
+      }
+    });
   }
 
   function getTodayISO() {
@@ -489,6 +880,26 @@
       }
     }
 
+    // 5b. Start time matching (e.g. 'at 9:00am', 'at 2:30 pm', 'at 14:00', 'at 9am', 'at 12pm', 'at 12:00 am')
+    let startTime = '';
+    const timeMatch = working.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||
+                      working.match(/\bat\s+(\d{1,2}):(\d{2})\b/i);
+    if (timeMatch) {
+      const hStr = timeMatch[1];
+      const mStr = timeMatch[2] || '00';
+      const period = timeMatch[3] ? timeMatch[3].toUpperCase() : '';
+      if (period) {
+        startTime = parse12hTo24h(`${hStr}:${mStr}`, period);
+      } else {
+        const h = parseInt(hStr, 10);
+        const m = parseInt(mStr, 10);
+        if (h >= 0 && h < 24 && m >= 0 && m < 60) {
+          startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+      }
+      working = working.replace(timeMatch[0], ' ');
+    }
+
     // 6. Clean trailing prepositions & extra spaces from title
     working = working.replace(/\b(?:by|on|due|before|until|at|for|in|with)\s*$/i, '');
     working = working.replace(/\s+/g, ' ').trim();
@@ -499,6 +910,7 @@
       deadline: deadline || todayIso,
       priority: priority || 'Medium',
       categoryId: categoryId || categories[0]?.id || 'cat-dsa',
+      startTime,
     };
   }
 
@@ -562,7 +974,7 @@
       }))
       .filter(ev => ev.duration > 0);
 
-    // Inject today's Lost Time blocks
+    // Inject today's Lost Time blocks (Fixed events are locked and never modified)
     if (typeof state !== 'undefined' && state.lostTimeEvents) {
       const todayLost = state.lostTimeEvents.filter(l => l.date === currentDate && l.startMin !== undefined);
       for (const l of todayLost) {
@@ -641,13 +1053,13 @@
         return (a.createdAt || '').localeCompare(b.createdAt || '');
       });
 
-    // 4. Extract Anchored Tasks (explicit startTime set, e.g. 09:35)
+    // 4. Extract Anchored Tasks (explicit startTime set, e.g. 09:35, 00:00)
     const anchoredTasks = [];
     const flexibleTasks = [];
     for (const t of taskPool) {
-      if (t.startTime) {
+      if (t.startTime && typeof t.startTime === 'string' && t.startTime.trim() !== '') {
         const sMin = parseTimeToMinutes(t.startTime);
-        if (sMin > 0) {
+        if (!isNaN(sMin) && sMin >= 0 && sMin < 1440) {
           anchoredTasks.push({ ...t, explicitStartMin: sMin });
           continue;
         }
@@ -817,7 +1229,9 @@
         const spaceLeft = gap.endMin - slotPtr;
         if (spaceLeft < 5) break;
 
-        const minNeeded = Math.min(curTask.simRemaining, minChunkMin);
+        const minNeeded = curTask.simRemaining <= maxChunkMin
+          ? curTask.simRemaining
+          : minChunkMin;
         if (spaceLeft < minNeeded) {
           break;
         }
@@ -923,8 +1337,8 @@
       return {
         ...block,
         status,
-        startTimeStr: minutesToTime(block.startMin),
-        endTimeStr: minutesToTime(block.endMin),
+        startTimeStr: formatDisplayTime(block.startMin),
+        endTimeStr: formatDisplayTime(block.endMin),
       };
     });
   }
@@ -939,182 +1353,169 @@
     reason = 'Other distraction',
     currentTimeMinutes = 0,
     todayIso = '',
+    startMin = null,
   }) {
-    let needed = Math.max(0, Math.round(lostMinutes));
+    const min = Math.max(5, Math.round(lostMinutes || 30));
+    const lostStartMin = (startMin != null && !isNaN(startMin))
+      ? startMin
+      : Math.max(0, currentTimeMinutes - min);
+    const lostEndMin = lostStartMin + min;
+
     const parts = [];
     let affectedCriticalOrHigh = false;
+    const taskMap = new Map(tasks.map(t => [t.id, { ...t }]));
 
+    const lostBlock = {
+      id: `lost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      type: 'lost',
+      title: '⚠️ Lost Time',
+      subtitle: reason || 'Distraction',
+      category: FALLBACK_CATEGORY_ID,
+      startMin: lostStartMin,
+      endMin: lostEndMin,
+      duration: min,
+    };
+
+    // Separate blocks into:
+    // 1. pastBlocks: fully finished before lostStartMin
+    // 2. resumingTasks: study tasks interrupted by or during lost time (kept at full uncut duration)
+    // 3. subsequentBlocks: all remaining blocks originally scheduled after lostStartMin
     const pastBlocks = [];
-    let futureBlocks = [];
+    const resumingTasks = [];
+    const subsequentBlocks = [];
 
     for (const b of currentTimeline) {
-      if (b.endMin <= currentTimeMinutes) pastBlocks.push({ ...b });
-      else futureBlocks.push({ ...b });
+      if (b.type === 'free') {
+        // Drop previous free buffer placeholders so shifted schedule packs smoothly
+        continue;
+      }
+
+      if (b.endMin <= lostStartMin) {
+        pastBlocks.push({ ...b });
+        continue;
+      }
+
+      // Blocks overlapping the lost time window [lostStartMin, lostEndMin]
+      if (b.startMin < lostEndMin && b.endMin > lostStartMin) {
+        if (b.type === 'task') {
+          if (b.startMin < lostStartMin) {
+            // Task was partially worked on before distraction started
+            const workedMin = lostStartMin - b.startMin;
+            pastBlocks.push({
+              ...b,
+              endMin: lostStartMin,
+              duration: workedMin,
+            });
+            const remDuration = Math.max(5, b.duration - workedMin);
+            resumingTasks.push({
+              ...b,
+              id: `${b.id}-resumed`,
+              duration: remDuration,
+            });
+            parts.push(`Study on "${b.title}" resumes right after lost time at ${formatDisplayTime(lostEndMin)} for ${remDuration}m.`);
+          } else {
+            // Task was scheduled during or overlapping lost time:
+            // It MUST NOT be sliced or reduced! It resumes right after lost time with full duration:
+            const fullTask = taskMap.get(b.taskId);
+            const userDuration = fullTask ? (fullTask.duration || fullTask.remaining || b.duration) : b.duration;
+            resumingTasks.push({
+              ...b,
+              duration: userDuration,
+            });
+            parts.push(`Study on "${b.title}" starts right after lost time at ${formatDisplayTime(lostEndMin)} for ${userDuration}m.`);
+          }
+          if (b.priority === 'Critical' || b.priority === 'High') {
+            affectedCriticalOrHigh = true;
+          }
+        } else if (b.type === 'break') {
+          // Break falls during distraction window -> drop it since user was not studying
+          continue;
+        } else {
+          // Non-task block (e.g. fixed or meal) if somehow overlapping
+          subsequentBlocks.push({ ...b });
+        }
+        continue;
+      }
+
+      if (b.startMin >= lostEndMin) {
+        // Scheduled after lost time window -> shifts below!
+        subsequentBlocks.push({ ...b });
+      }
     }
 
-    const taskMap = new Map(tasks.map(t => [t.id, { ...t }]));
+    // Reflow queue starting right after the lost time (lostEndMin)
+    let curPtr = lostEndMin;
+    const reflowed = [lostBlock];
+
+    // 1. Place resuming study tasks immediately after lost time with FULL intact duration
+    for (const rTask of resumingTasks) {
+      const taskStart = curPtr;
+      const taskEnd = taskStart + rTask.duration;
+      reflowed.push({
+        ...rTask,
+        startMin: taskStart,
+        endMin: taskEnd,
+        duration: rTask.duration,
+        startTimeStr: formatDisplayTime(taskStart),
+        endTimeStr: formatDisplayTime(taskEnd),
+      });
+      curPtr = taskEnd;
+
+      if (rTask.taskId && taskMap.has(rTask.taskId)) {
+        taskMap.get(rTask.taskId).startTime = minutesToTime(taskStart);
+      }
+    }
+
+    // 2. Sort subsequent blocks by original startMin and shift them smoothly
+    subsequentBlocks.sort((a, b) => a.startMin - b.startMin);
+
+    for (const b of subsequentBlocks) {
+      // Shift block if preceding items pushed past its original start time
+      const newStart = Math.max(b.startMin, curPtr);
+      const newEnd = newStart + b.duration;
+      reflowed.push({
+        ...b,
+        startMin: newStart,
+        endMin: newEnd,
+        duration: b.duration,
+        startTimeStr: formatDisplayTime(newStart),
+        endTimeStr: formatDisplayTime(newEnd),
+      });
+      curPtr = newEnd;
+
+      if (b.type === 'task' && b.taskId && taskMap.has(b.taskId)) {
+        const t = taskMap.get(b.taskId);
+        if (t.startTime) {
+          t.startTime = minutesToTime(newStart);
+        }
+      }
+    }
+
+    const dayEndMin = typeof state !== 'undefined' && state.scheduleConfig?.dayEnd
+      ? parseTimeToMinutes(state.scheduleConfig.dayEnd)
+      : 23 * 60; // 23:00 default
+
     const trimmedTasks = [];
     const postponedTasks = [];
-    let freedFromFree = 0;
-    let freedFromBreaks = 0;
 
-    // Tier 1: Shrink future free time
-    if (needed > 0) {
-      for (const b of futureBlocks) {
-        if (b.type === 'free') {
-          const take = Math.min(needed, b.duration);
-          b.duration -= take;
-          needed -= take;
-          freedFromFree += take;
-          if (needed <= 0) break;
-        }
-      }
-      futureBlocks = futureBlocks.filter(b => b.type !== 'free' || b.duration > 0);
-    }
-    if (freedFromFree > 0) parts.push(`Recovered ${freedFromFree}m from planned free/buffer time.`);
-
-    // Tier 2: Shrink breaks to floor of 5m
-    if (needed > 0) {
-      for (const b of futureBlocks) {
-        if (b.type === 'break' && b.duration > 5) {
-          const take = Math.min(needed, b.duration - 5);
-          b.duration -= take;
-          needed -= take;
-          freedFromBreaks += take;
-          if (needed <= 0) break;
-        }
-      }
-    }
-    if (freedFromBreaks > 0) parts.push(`Shortened rest breaks by ${freedFromBreaks}m (kept 5m minimums).`);
-
-    // Tier 3: Trim Low then Medium flexible tasks down to 15m (NEVER STRICT TASKS, NEVER REDUCE task.remaining)
-    const trimTier = (tier) => {
-      if (needed <= 0) return;
-      for (const b of futureBlocks) {
-        if (b.type === 'task' && b.flexibility !== 'Strict' && b.priority === tier && b.duration > 15) {
-          const take = Math.min(needed, b.duration - 15);
-          b.duration -= take;
-          needed -= take;
-          // CRITICAL: We do NOT reduce t.remaining! The student's workload remains what it was.
-          trimmedTasks.push({ title: b.title, priority: b.priority, trimmedMin: take });
-          if (needed <= 0) break;
-        }
-      }
-    };
-    if (needed > 0) trimTier('Low');
-    if (needed > 0) trimTier('Medium');
-    if (trimmedTasks.length > 0) {
-      parts.push(`Trimmed non-urgent flexible tasks to 15m floor: ${trimmedTasks.map(t => `"${t.title}" (-${t.trimmedMin}m today)`).join(', ')}.`);
-    }
-
-    // Tier 4: Postpone whole flexible tasks to tomorrow (LOWEST priority first, STRICT protected)
-    if (needed > 0) {
-      const candidates = [];
-      for (let i = 0; i < futureBlocks.length; i++) {
-        if (futureBlocks[i].type === 'task' && futureBlocks[i].flexibility !== 'Strict') {
-          candidates.push(i);
-        }
-      }
-      // Sort ascending by priority weight (Low = 1 first, then Medium = 2, then High = 3, then Critical = 4)
-      candidates.sort((iA, iB) => (PRIORITY_WEIGHTS[futureBlocks[iA].priority] || 1) - (PRIORITY_WEIGHTS[futureBlocks[iB].priority] || 1));
-
-      const removeIndices = new Set();
-      for (const idx of candidates) {
-        if (needed <= 0) break;
-        const b = futureBlocks[idx];
-        removeIndices.add(idx);
-        const isHigh = b.priority === 'Critical' || b.priority === 'High';
-        if (isHigh) affectedCriticalOrHigh = true;
-
-        if (b.taskId && taskMap.has(b.taskId)) {
-          taskMap.get(b.taskId).postponedUntil = addDays(todayIso, 1);
-        }
-        postponedTasks.push({ title: b.title, priority: b.priority, duration: b.duration });
-        needed -= b.duration;
-      }
-
-      // If needed still > 0, strict tasks move only if physically impossible to fit
-      if (needed > 0) {
-        const strictCandidates = [];
-        for (let i = 0; i < futureBlocks.length; i++) {
-          if (futureBlocks[i].type === 'task' && futureBlocks[i].flexibility === 'Strict' && !removeIndices.has(i)) {
-            strictCandidates.push(i);
-          }
-        }
-        strictCandidates.sort((iA, iB) => (PRIORITY_WEIGHTS[futureBlocks[iA].priority] || 1) - (PRIORITY_WEIGHTS[futureBlocks[iB].priority] || 1));
-        for (const idx of strictCandidates) {
-          if (needed <= 0) break;
-          const b = futureBlocks[idx];
-          removeIndices.add(idx);
-          affectedCriticalOrHigh = true;
+    // Check for overflow past dayEndMin (bedtime)
+    for (let i = reflowed.length - 1; i >= 0; i--) {
+      const b = reflowed[i];
+      if (b.type === 'task' && b.endMin > dayEndMin) {
+        if (b.flexibility !== 'Strict') {
           if (b.taskId && taskMap.has(b.taskId)) {
             taskMap.get(b.taskId).postponedUntil = addDays(todayIso, 1);
           }
-          postponedTasks.push({ title: b.title, priority: b.priority, duration: b.duration, isStrict: true });
-          parts.push(`⚠️ Insufficient capacity: Strict task "${b.title}" had to be moved to tomorrow.`);
-          needed -= b.duration;
+          postponedTasks.push({ title: b.title, priority: b.priority });
+          reflowed.splice(i, 1);
         }
       }
-
-      futureBlocks = futureBlocks.filter((_, idx) => !removeIndices.has(idx));
     }
+
     if (postponedTasks.length > 0) {
-      parts.push(`Postponed to tomorrow: ${postponedTasks.map(t => `"${t.title}" (${t.priority})`).join(', ')}.`);
-      if (affectedCriticalOrHigh && !postponedTasks.some(t => t.isStrict)) {
-        parts.push(`⚠️ Note: High-priority flexible tasks had to shift to tomorrow.`);
-      }
-    }
-
-    // Workload integrity reminder
-    parts.push('Remaining workload counts are preserved.');
-
-    // Tier 5: Reflow remaining future blocks back-to-back from "now"
-    // Keep fixed events and meals locked in place
-    const fixedFuture = futureBlocks.filter(b => b.type === 'fixed' || b.type === 'meal').sort((a, b) => a.startMin - b.startMin);
-    const nonFixed = futureBlocks.filter(b => b.type !== 'fixed' && b.type !== 'meal');
-
-    let curPtr = currentTimeMinutes;
-    const reflowed = [];
-    let nIdx = 0;
-
-    while (nIdx < nonFixed.length) {
-      const block = nonFixed[nIdx];
-      const nextFix = fixedFuture.find(f => f.endMin > curPtr);
-
-      if (nextFix && curPtr < nextFix.startMin) {
-        const cap = nextFix.startMin - curPtr;
-        if (block.duration <= cap) {
-          reflowed.push({ ...block, startMin: curPtr, endMin: curPtr + block.duration });
-          curPtr += block.duration;
-          nIdx++;
-        } else {
-          // Add buffer for gap before fixed event if space permits
-          if (cap >= 5) {
-            reflowed.push({
-              id: `free-reflow-${curPtr}`,
-              type: 'free',
-              title: 'Free Buffer',
-              category: FALLBACK_CATEGORY_ID,
-              startMin: curPtr,
-              endMin: nextFix.startMin,
-              duration: cap,
-            });
-          }
-          if (!reflowed.some(b => b.id === nextFix.id)) reflowed.push(nextFix);
-          curPtr = nextFix.endMin;
-        }
-      } else if (nextFix && curPtr >= nextFix.startMin) {
-        if (!reflowed.some(b => b.id === nextFix.id)) reflowed.push(nextFix);
-        curPtr = Math.max(curPtr, nextFix.endMin);
-      } else {
-        reflowed.push({ ...block, startMin: curPtr, endMin: curPtr + block.duration });
-        curPtr += block.duration;
-        nIdx++;
-      }
-    }
-
-    for (const f of fixedFuture) {
-      if (!reflowed.some(b => b.id === f.id)) reflowed.push(f);
+      parts.push(`Day capacity reached: Postponed to tomorrow (${postponedTasks.map(t => t.title).join(', ')}).`);
+    } else {
+      parts.push(`Subsequent schedule shifted below smoothly.`);
     }
 
     const combined = [...pastBlocks, ...reflowed]
@@ -1127,12 +1528,17 @@
         if (currentTimeMinutes >= block.endMin) status = 'fixed-done';
         else if (currentTimeMinutes >= block.startMin) status = 'fixed-active';
         else status = 'fixed';
+      } else if (block.type === 'lost') {
+        if (currentTimeMinutes >= block.endMin) status = 'passed';
+        else if (currentTimeMinutes >= block.startMin) status = 'active';
+        else status = 'upcoming';
       } else if (block.type === 'task') {
         const original = taskMap.get(block.taskId);
         const isDone = original?.status === 'completed' || (original && original.remaining <= 0);
         if (isDone) status = 'completed';
-        else if (currentTimeMinutes >= block.endMin) status = 'missed';
-        else if (currentTimeMinutes >= block.startMin) status = 'active';
+        else if (currentTimeMinutes >= block.endMin && block.endMin <= lostStartMin) status = 'missed';
+        else if (currentTimeMinutes >= block.endMin && block.startMin >= lostEndMin) status = 'missed';
+        else if (currentTimeMinutes >= block.startMin && currentTimeMinutes < block.endMin) status = 'active';
         else status = 'upcoming';
       } else {
         if (currentTimeMinutes >= block.endMin) status = 'passed';
@@ -1143,15 +1549,15 @@
       return {
         ...block,
         status,
-        startTimeStr: minutesToTime(block.startMin),
-        endTimeStr: minutesToTime(block.endMin),
+        startTimeStr: formatDisplayTime(block.startMin),
+        endTimeStr: formatDisplayTime(block.endMin),
       };
     });
 
     return {
       updatedTimeline: finalTimeline,
       updatedTasks: Array.from(taskMap.values()),
-      explanation: parts.join(' ') || `Timeline recalculated from ${minutesToTime(currentTimeMinutes)}.`,
+      explanation: parts.join(' ') || `Schedule replanned: study resumed at ${formatDisplayTime(lostEndMin)}.`,
       affectedCriticalOrHigh,
       trimmedTasks,
       postponedTasks,
@@ -1563,9 +1969,11 @@
   // 9. REACTIVE STATE & PERSISTENCE
   // =========================================================================
   function loadState() {
+    const session = getAuthSession();
+    const storageKey = getStorageKey(session?.userId);
     const seed = getSeedData();
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
@@ -1644,9 +2052,14 @@
           const collegeSubjects = Array.isArray(parsed.collegeSubjects) ? parsed.collegeSubjects : seed.collegeSubjects;
           const lostTimeEvents = Array.isArray(parsed.lostTimeEvents) ? parsed.lostTimeEvents : seed.lostTimeEvents;
 
+          const scheduleConfig = parsed.scheduleConfig ? { ...DEFAULT_SCHEDULE_CONFIG, ...parsed.scheduleConfig } : { ...DEFAULT_SCHEDULE_CONFIG };
+          const timeFormat = parsed.timeFormat || scheduleConfig.timeFormat || '12h';
+          scheduleConfig.timeFormat = timeFormat;
+
           return {
             user: parsed.user || null,
             theme: parsed.theme === 'light' ? 'light' : 'dark',
+            timeFormat,
             categories,
             tasks,
             fixedEvents,
@@ -1655,15 +2068,15 @@
             lostTimeEvents,
             studySessions,
             dailyNotes: parsed.dailyNotes || seed.dailyNotes,
-            scheduleConfig: parsed.scheduleConfig ? { ...DEFAULT_SCHEDULE_CONFIG, ...parsed.scheduleConfig } : { ...DEFAULT_SCHEDULE_CONFIG },
+            scheduleConfig,
           };
         }
       }
     } catch (e) {
-      console.warn('Fallback to seed data:', e);
+        console.warn('Fallback to seed data:', e);
+      }
+      return { ...seed, timeFormat: '12h', scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG, timeFormat: '12h' } };
     }
-    return { ...seed, scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG } };
-  }
 
   const state = {
     ...loadState(),
@@ -1701,42 +2114,56 @@
     })(),
   };
 
-  // Ensure scheduleConfig always exists
-  if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+    // Ensure scheduleConfig always exists
+    if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+    if (!state.scheduleConfig.timeFormat) state.scheduleConfig.timeFormat = state.timeFormat || '12h';
 
-  function saveState() {
-    try {
-      const payload = {
-        tasks: state.tasks,
-        fixedEvents: state.fixedEvents,
-        categories: state.categories,
-        dsaTopics: state.dsaTopics,
-        collegeSubjects: state.collegeSubjects,
-        lostTimeEvents: state.lostTimeEvents,
-        studySessions: state.studySessions,
-        dailyNotes: state.dailyNotes,
-        theme: state.theme,
-        timelineView: state.timelineView,
-        scheduleConfig: state.scheduleConfig,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    function saveState() {
+      const session = getAuthSession();
+      if (!session) return;
+      const storageKey = getStorageKey(session.userId);
+      try {
+        const payload = {
+          tasks: state.tasks,
+          fixedEvents: state.fixedEvents,
+          categories: state.categories,
+          dsaTopics: state.dsaTopics,
+          collegeSubjects: state.collegeSubjects,
+          lostTimeEvents: state.lostTimeEvents,
+          studySessions: state.studySessions,
+          dailyNotes: state.dailyNotes,
+          theme: state.theme,
+          timeFormat: getTimeFormat(),
+          timelineView: state.timelineView,
+          scheduleConfig: { ...state.scheduleConfig, timeFormat: getTimeFormat() },
+        };
+        localStorage.setItem(storageKey, JSON.stringify(payload));
     } catch (err) {
       console.error('LocalStorage write error:', err);
     }
   }
 
+  function initUserState() {
+    const fresh = loadState();
+    Object.keys(fresh).forEach(k => {
+      state[k] = fresh[k];
+    });
+    state.activeTab = 'dashboard';
+    state.activeModal = null;
+    state.focus = null;
+    state.viewDate = getTodayISO();
+    recalculateTimeline();
+  }
+
   // 1. Clear All Data (Clean Slate for Real Daily Life)
   function clearAllData() {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      // Avoid full localStorage wipe
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('adapt_')) {
-        localStorage.removeItem(k);
-      }
+    const session = getAuthSession();
+    if (session) {
+      const storageKey = getStorageKey(session.userId);
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (e) {}
     }
-    } catch (e) {}
 
     state.tasks = [];
     state.fixedEvents = [];
@@ -1759,16 +2186,13 @@
 
   // 2. Load Sample Demo Data (For previewing)
   function loadDemoData() {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      // Avoid full localStorage wipe
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('adapt_')) {
-        localStorage.removeItem(k);
-      }
+    const session = getAuthSession();
+    if (session) {
+      const storageKey = getStorageKey(session.userId);
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (e) {}
     }
-    } catch (e) {}
 
     const fresh = getSeedData();
     state.tasks = fresh.tasks;
@@ -1830,115 +2254,381 @@
   }
 
   // =========================================================================
-  // 10. DOM RENDERING ENGINE
+  // 10. DOM RENDERING ENGINE & ROUTE GUARDS
   // =========================================================================
   const appRoot = document.getElementById('app');
 
-  
-  function renderOnboardingHtml() {
+  function renderSignInFormHtml() {
     return `
-      <div class="onboarding-overlay">
-        <div class="onboarding-card">
-          <h2 style="margin-bottom:10px; font-size: 24px; color: var(--text-primary);">Welcome to Adapt</h2>
-          <p style="color: var(--text-secondary); margin-bottom: 20px;">Your intelligent, adaptive study planner.</p>
-          <div class="form-group" style="text-align:left; margin-bottom: 20px;">
-            <label style="display:block; margin-bottom: 8px; color: var(--text-muted);">What should we call you?</label>
-            <input type="text" id="onboarding-name" class="input-text" placeholder="Your Name" style="width: 100%;" />
+      <form id="auth-signin-form" novalidate>
+        <div class="login-field-group">
+          <label class="login-label" for="signin-email">Email Address</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <input type="email" id="signin-email" class="login-input" placeholder="student@university.edu" required autocomplete="email" />
           </div>
-          <button class="btn btn-primary" id="btn-onboarding-start" style="width:100%; justify-content:center;">Start Focusing</button>
         </div>
-      </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signin-password">Password</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="${authUIState.showPassword ? 'text' : 'password'}" id="signin-password" class="login-input" placeholder="Enter your password" required autocomplete="current-password" />
+            <button type="button" class="login-password-toggle" id="btn-toggle-signin-pwd" title="${authUIState.showPassword ? 'Hide password' : 'Show password'}">
+              ${authUIState.showPassword ? '👁️' : '🔒'}
+            </button>
+          </div>
+        </div>
+
+        <div class="auth-remember-row">
+          <label class="auth-checkbox-label">
+            <input type="checkbox" id="signin-remember" class="auth-checkbox" checked />
+            <span>Remember me (7 days)</span>
+          </label>
+          <a href="#" id="link-forgot-pw" style="color: #60a5fa; text-decoration: none; font-size: 11px;">Forgot password?</a>
+        </div>
+
+        <div class="login-actions">
+          <button type="submit" class="login-btn" id="btn-submit-signin">
+            <span>Sign In to Workspace</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+
+        <button type="button" class="demo-login-btn" id="btn-demo-login">
+          <span>⚡ One-Click Demo Student Account</span>
+        </button>
+      </form>
     `;
   }
 
-  function attachOnboardingListeners() {
-    const btn = document.getElementById('btn-onboarding-start');
-    if (btn) {
-      btn.onclick = () => {
-        const name = document.getElementById('onboarding-name').value.trim();
-        if (!name) {
-          alert('Please enter your name.');
+  function renderSignUpFormHtml() {
+    return `
+      <form id="auth-signup-form" novalidate>
+        <div class="login-field-group">
+          <label class="login-label" for="signup-name">Full Name</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="signup-name" class="login-input" placeholder="Alex Mercer" required autocomplete="name" />
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signup-email">Email Address</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <input type="email" id="signup-email" class="login-input" placeholder="alex@university.edu" required autocomplete="email" />
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signup-password">Create Password (Min 6 chars)</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="${authUIState.showSignupPassword ? 'text' : 'password'}" id="signup-password" class="login-input" placeholder="Create a secure password" required autocomplete="new-password" />
+            <button type="button" class="login-password-toggle" id="btn-toggle-signup-pwd" title="${authUIState.showSignupPassword ? 'Hide password' : 'Show password'}">
+              ${authUIState.showSignupPassword ? '👁️' : '🔒'}
+            </button>
+          </div>
+          <div class="password-strength-wrap" id="password-strength-box" style="display:none;">
+            <div class="password-strength-track">
+              <div class="password-strength-fill" id="pwd-strength-fill" style="width:0%;background-color:#ef4444;"></div>
+            </div>
+            <div class="password-strength-text">
+              <span id="pwd-strength-label">Password strength</span>
+              <span id="pwd-strength-hint" class="font-mono">Too short</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label class="login-label" for="signup-confirm">Confirm Password</label>
+          <div class="login-input-box">
+            <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="${authUIState.showConfirmPassword ? 'text' : 'password'}" id="signup-confirm" class="login-input" placeholder="Repeat your password" required autocomplete="new-password" />
+            <button type="button" class="login-password-toggle" id="btn-toggle-confirm-pwd" title="${authUIState.showConfirmPassword ? 'Hide password' : 'Show password'}">
+              ${authUIState.showConfirmPassword ? '👁️' : '🔒'}
+            </button>
+          </div>
+        </div>
+
+        <div class="login-actions">
+          <button type="submit" class="login-btn" id="btn-submit-signup">
+            <span>Create Free Account</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
+  function renderAuthView() {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    const isSignIn = authUIState.mode === 'signin';
+
+    appRoot.innerHTML = `
+      <div class="login-overlay">
+        <div class="login-ambient-lights">
+          <div class="login-orb orb-1"></div>
+          <div class="login-orb orb-2"></div>
+          <div class="login-orb orb-3"></div>
+        </div>
+
+        <div class="login-card">
+          <div class="login-badge">
+            <span class="pulse-dot"></span> Secure Account Sync
+          </div>
+
+          <div class="login-logo-wrapper">
+            <div class="login-logo">
+              <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent);">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+          </div>
+
+          <h1 class="login-title">${isSignIn ? 'Sign in to Adapt' : 'Create Your Account'}</h1>
+          <p class="login-subtitle">${isSignIn ? 'Sign in to access your adaptive study schedule and synchronize daily tasks.' : 'Join Adapt to build focused study habits, track DSA problems, and ace your exams.'}</p>
+
+          <!-- Mode Switch Tabs -->
+          <div class="auth-mode-switch" role="tablist">
+            <button type="button" class="auth-mode-btn ${isSignIn ? 'active' : ''}" id="auth-tab-signin" role="tab" aria-selected="${isSignIn}">
+              Sign In
+            </button>
+            <button type="button" class="auth-mode-btn ${!isSignIn ? 'active' : ''}" id="auth-tab-signup" role="tab" aria-selected="${!isSignIn}">
+              Create Account
+            </button>
+          </div>
+
+          <!-- Alert Notification -->
+          ${authUIState.error ? `
+            <div class="auth-alert error">
+              <span>⚠️</span>
+              <span>${escapeHtml(authUIState.error)}</span>
+            </div>
+          ` : ''}
+          ${authUIState.success ? `
+            <div class="auth-alert success">
+              <span>✅</span>
+              <span>${escapeHtml(authUIState.success)}</span>
+            </div>
+          ` : ''}
+
+          ${isSignIn ? renderSignInFormHtml() : renderSignUpFormHtml()}
+
+          <div class="login-security-notice">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>SHA-256 salted encryption • Isolated user storage</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    attachAuthEventListeners();
+  }
+
+  function attachAuthEventListeners() {
+    // Mode Switch tabs
+    document.getElementById('auth-tab-signin')?.addEventListener('click', () => {
+      authUIState.mode = 'signin';
+      authUIState.error = null;
+      renderAuthView();
+    });
+
+    document.getElementById('auth-tab-signup')?.addEventListener('click', () => {
+      authUIState.mode = 'signup';
+      authUIState.error = null;
+      renderAuthView();
+    });
+
+    // Password visibility toggles
+    document.getElementById('btn-toggle-signin-pwd')?.addEventListener('click', () => {
+      authUIState.showPassword = !authUIState.showPassword;
+      renderAuthView();
+    });
+
+    document.getElementById('btn-toggle-signup-pwd')?.addEventListener('click', () => {
+      authUIState.showSignupPassword = !authUIState.showSignupPassword;
+      renderAuthView();
+    });
+
+    document.getElementById('btn-toggle-confirm-pwd')?.addEventListener('click', () => {
+      authUIState.showConfirmPassword = !authUIState.showConfirmPassword;
+      renderAuthView();
+    });
+
+    // Live Password Strength Meter in Signup
+    const signupPwdInput = document.getElementById('signup-password');
+    if (signupPwdInput) {
+      signupPwdInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        const box = document.getElementById('password-strength-box');
+        const fill = document.getElementById('pwd-strength-fill');
+        const hint = document.getElementById('pwd-strength-hint');
+        if (!val) {
+          if (box) box.style.display = 'none';
           return;
         }
-        state.user = { name };
-        saveState();
-        render();
-      };
+        if (box) box.style.display = 'block';
+        const st = getPasswordStrength(val);
+        if (fill) {
+          fill.style.width = `${st.pct}%`;
+          fill.style.backgroundColor = st.color;
+        }
+        if (hint) {
+          hint.textContent = st.label;
+          hint.style.color = st.color;
+        }
+      });
     }
+
+    // Forgot password link
+    document.getElementById('link-forgot-pw')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      authUIState.error = 'To explore all features right away, you can sign in with the Demo Student account or create a new free account.';
+      renderAuthView();
+    });
+
+    // One-Click Demo Student Login
+    document.getElementById('btn-demo-login')?.addEventListener('click', async () => {
+      await ensureDemoUser();
+      const users = getUsersDB();
+      const demoUser = users.find(u => u.email.toLowerCase() === 'demo@adapt.study');
+      if (demoUser) {
+        setAuthSession(demoUser, true);
+        initUserState();
+        showBanner(`Welcome back, ${demoUser.name}! (Demo Account)`, 'success');
+        render();
+      }
+    });
+
+    // Sign In Form Submission
+    document.getElementById('auth-signin-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('signin-email')?.value?.trim();
+      const password = document.getElementById('signin-password')?.value;
+      const remember = document.getElementById('signin-remember')?.checked;
+
+      if (!email || !password) {
+        authUIState.error = 'Please enter both your email address and password.';
+        renderAuthView();
+        return;
+      }
+
+      await ensureDemoUser();
+      const users = getUsersDB();
+      const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+      if (!user) {
+        authUIState.error = 'No account found with this email address. Please check your spelling or create an account.';
+        renderAuthView();
+        return;
+      }
+
+      const inputHash = await hashPassword(password, user.salt);
+      if (inputHash !== user.passwordHash) {
+        authUIState.error = 'Incorrect password. Please verify and try again.';
+        renderAuthView();
+        return;
+      }
+
+      // Valid credentials! Set session
+      user.lastLogin = getTodayISO();
+      saveUsersDB(users);
+      setAuthSession(user, remember);
+      authUIState.error = null;
+      authUIState.success = null;
+      initUserState();
+      showBanner(`Welcome back, ${user.name}!`, 'success');
+      render();
+    });
+
+    // Sign Up Form Submission
+    document.getElementById('auth-signup-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('signup-name')?.value?.trim();
+      const email = document.getElementById('signup-email')?.value?.trim();
+      const password = document.getElementById('signup-password')?.value;
+      const confirm = document.getElementById('signup-confirm')?.value;
+
+      if (!name || name.length < 2) {
+        authUIState.error = 'Please enter your full name (at least 2 characters).';
+        renderAuthView();
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
+        authUIState.error = 'Please enter a valid email address.';
+        renderAuthView();
+        return;
+      }
+
+      if (!password || password.length < 6) {
+        authUIState.error = 'Password must be at least 6 characters long.';
+        renderAuthView();
+        return;
+      }
+
+      if (password !== confirm) {
+        authUIState.error = 'Passwords do not match. Please re-enter your confirmation.';
+        renderAuthView();
+        return;
+      }
+
+      await ensureDemoUser();
+      const users = getUsersDB();
+      if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+        authUIState.error = 'An account with this email address already exists. Please sign in instead.';
+        renderAuthView();
+        return;
+      }
+
+      // Create new user
+      const salt = generateRandomHex(12);
+      const passwordHash = await hashPassword(password, salt);
+      const newUser = {
+        id: `usr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        email,
+        salt,
+        passwordHash,
+        createdAt: getTodayISO(),
+        lastLogin: getTodayISO(),
+      };
+
+      users.push(newUser);
+      saveUsersDB(users);
+
+      // Initialize clean user planner state
+      const initialSeed = {
+        categories: [...DEFAULT_CATEGORIES],
+        tasks: [],
+        fixedEvents: [],
+        dsaTopics: [],
+        collegeSubjects: [],
+        lostTimeEvents: [],
+        studySessions: [],
+        dailyNotes: {},
+        theme: 'dark',
+        timelineView: 'agenda',
+        scheduleConfig: { ...DEFAULT_SCHEDULE_CONFIG },
+      };
+      localStorage.setItem(`adapt_study_planner_state_${newUser.id}`, JSON.stringify(initialSeed));
+
+      setAuthSession(newUser, true);
+      authUIState.error = null;
+      authUIState.success = null;
+      initUserState();
+      showBanner(`Account created! Welcome to Adapt, ${newUser.name}!`, 'success');
+      render();
+    });
   }
 
   function render() {
-    if (!googleId) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      appRoot.innerHTML = `
-        <div class="login-overlay">
-          <div class="login-ambient-lights">
-            <div class="login-orb orb-1"></div>
-            <div class="login-orb orb-2"></div>
-            <div class="login-orb orb-3"></div>
-          </div>
-          <div class="login-card">
-            <div class="login-badge">
-              <span class="pulse-dot"></span> Secure Account Sync
-            </div>
-            <div class="login-logo-wrapper">
-              <div class="login-logo">
-                <svg viewBox="0 0 24 24" width="42" height="42" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l2.85-2.22.83-.62z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-              </div>
-            </div>
-            <h1 class="login-title">Sign in to Adapt</h1>
-            <p class="login-subtitle">Connect your Google ID to auto-save and synchronize your academic schedule</p>
-            <form id="google-login-form">
-              <div class="login-field-group">
-                <label class="login-label">Google Account (Email)</label>
-                <div class="login-input-box">
-                  <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                  <input type="email" id="login-email" class="login-input" placeholder="student@gmail.com" required autocomplete="username" />
-                </div>
-              </div>
-              <div class="login-field-group">
-                <label class="login-label">App Password</label>
-                <div class="login-input-box">
-                  <svg class="login-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  <input type="password" id="login-password" class="login-input" placeholder="Set password for this app" required autocomplete="current-password" />
-                </div>
-              </div>
-              <div class="login-actions">
-                <button type="submit" class="btn login-btn">
-                  <span>Sign In & Sync Progress</span>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-              </div>
-              <div class="login-security-notice">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                <span>Encrypted local storage bound to your Google ID</span>
-              </div>
-            </form>
-          </div>
-        </div>
-      `;
-      document.getElementById('google-login-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const email = document.getElementById('login-email').value;
-        if (email) {
-          localStorage.setItem('adapt_google_id', email);
-          
-          const newKey = `adapt_study_planner_state_${email}`;
-          if (!localStorage.getItem(newKey)) {
-            const guestData = localStorage.getItem('adapt_study_planner_state_v2');
-            if (guestData) {
-              localStorage.setItem(newKey, guestData);
-            }
-          }
-          
-          window.location.reload();
-        }
-      });
+    const session = getAuthSession();
+    if (!session) {
+      renderAuthView();
       return;
     }
 
@@ -1976,7 +2666,7 @@
       <div class="app-banner banner-${state.banner.type} animate-fade-in">
         <div class="banner-content">
           <span>${state.banner.type === 'warning' ? '⚠️' : state.banner.type === 'success' ? '✅' : 'ℹ️'}</span>
-          <span>${state.banner.text}</span>
+          <span>${escapeHtml(state.banner.text)}</span>
         </div>
         <button class="banner-close-btn" id="btn-banner-close">✕</button>
       </div>
@@ -1988,11 +2678,12 @@
   }
 
   function renderNavHtml() {
+    const session = getAuthSession();
     const today = getTodayISO();
     const streak = calculateStreak(state.studySessions, today);
     const overdue = getOverdueTasksCount(state.tasks, today);
     const curMin = getCurrentTimeMinutes(state.currentTime);
-    const timeStr = formatTime12(curMin);
+    const timeStr = formatDisplayTime(curMin);
     const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][state.currentTime.getDay()];
 
     const tabs = [
@@ -2004,6 +2695,11 @@
       { id: 'analytics', label: 'Analytics', icon: '📊' },
       { id: 'settings', label: 'Settings', icon: '⚙️' },
     ];
+
+    const userName = session?.name || 'Student';
+    const userEmail = session?.email || '';
+    const initials = getUserInitials(userName);
+    const firstName = userName.split(' ')[0];
 
     return `
       <header class="nav-header">
@@ -2040,6 +2736,33 @@
             <button class="theme-toggle-btn" id="btn-theme-toggle" title="Toggle Theme">
               ${state.theme === 'dark' ? '☀️' : '🌙'}
             </button>
+
+            <!-- User Profile Dropdown Pill -->
+            <div class="nav-user-wrapper">
+              <button class="nav-user-pill" id="btn-nav-user" title="Account Menu">
+                <span class="user-avatar-badge">${initials}</span>
+                <span class="user-name-text">${escapeHtml(firstName)}</span>
+                <span class="user-pill-arrow">▼</span>
+              </button>
+              <div class="nav-user-dropdown" id="nav-user-dropdown" style="display:none;">
+                <div class="user-dropdown-header">
+                  <div class="user-dropdown-name">${escapeHtml(userName)}</div>
+                  <div class="user-dropdown-email font-mono">${escapeHtml(userEmail)}</div>
+                  <div class="flex items-center gap-1 mt-1">
+                    <span class="badge badge-low" style="font-size:9px;padding:2px 6px;">● Active Session</span>
+                  </div>
+                </div>
+                <div class="user-dropdown-divider"></div>
+                <button class="user-dropdown-item" data-action="nav-settings">
+                  <span>⚙️</span>
+                  <span>Account & Settings</span>
+                </button>
+                <button class="user-dropdown-item text-danger" id="btn-nav-logout">
+                  <span>🚪</span>
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <nav class="nav-tabs" aria-label="Main Navigation">
@@ -2127,9 +2850,9 @@
               <div class="hero-live-status">
                 <span class="live-status-chip">
                   <span class="status-indicator-dot"></span>
-                  <strong>Currently:</strong> ${curStatus}
+                  <strong>Currently:</strong> ${escapeHtml(curStatus)}
                 </span>
-                <span class="next-status-text font-mono">${nextStatus}</span>
+                <span class="next-status-text font-mono">${escapeHtml(nextStatus)}</span>
               </div>
             </div>
 
@@ -2213,7 +2936,7 @@
                         <div class="mini-task-left">
                           <input type="checkbox" class="task-checkbox" data-task-complete="${t.id}" ${t.status === 'completed' ? 'checked' : ''} />
                           <div class="mini-task-meta">
-                            <span class="mini-task-title">${t.title}</span>
+                            <span class="mini-task-title">${escapeHtml(t.title)}</span>
                             <div class="mini-task-tags">
                               <span class="badge text-xs" style="color:${col};background:${col}18;">${lab}</span>
                               <span class="badge badge-${(t.priority || 'Medium').toLowerCase()}">${t.priority || 'Medium'}</span>
@@ -2303,18 +3026,18 @@
           <div class="schedule-routine-bar">
             <div class="flex items-center gap-2 flex-wrap text-xs">
               <span class="text-secondary font-medium">🌅 Day Starts:</span>
-              <input type="time" class="input-text font-mono quick-day-start-input" id="quick-day-start" value="${sc.dayStart || '08:00'}" />
-              <button class="btn btn-secondary btn-sm" id="btn-start-day-now" style="padding:3px 8px;font-size:11px;" title="Set schedule to start at current time">⚡ Start Now (${formatTime12(getCurrentTimeMinutes(state.currentTime))})</button>
+              ${renderTimeInput('quick-day-start', sc.dayStart || '08:00', { compact: true })}
+              <button class="btn btn-secondary btn-sm" id="btn-start-day-now" style="padding:3px 8px;font-size:11px;" title="Set schedule to start at current time">⚡ Start Now (${formatDisplayTime(getCurrentTimeMinutes(state.currentTime))})</button>
             </div>
             <div class="flex items-center gap-2 text-xs flex-wrap">
               <button class="routine-chip-btn" data-action="open-modal-routine" data-focus-meal="breakfast" title="Click to customize breakfast time & duration">
-                🍳 Breakfast: <strong>${sc.breakfastStart || '08:30'}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.breakfastEnd) - parseTimeToMinutes(sc.breakfastStart)) || sc.breakfastDuration || 30}m)</span>
+                🍳 Breakfast: <strong>${formatDisplayTime(sc.breakfastStart || '08:30')}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.breakfastEnd) - parseTimeToMinutes(sc.breakfastStart)) || sc.breakfastDuration || 30}m)</span>
               </button>
               <button class="routine-chip-btn" data-action="open-modal-routine" data-focus-meal="lunch" title="Click to customize lunch time & duration">
-                🍱 Lunch: <strong>${sc.lunchStart || '13:00'}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.lunchEnd) - parseTimeToMinutes(sc.lunchStart)) || sc.lunchDuration || 45}m)</span>
+                🍱 Lunch: <strong>${formatDisplayTime(sc.lunchStart || '13:00')}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.lunchEnd) - parseTimeToMinutes(sc.lunchStart)) || sc.lunchDuration || 45}m)</span>
               </button>
               <button class="routine-chip-btn" data-action="open-modal-routine" data-focus-meal="dinner" title="Click to customize dinner time & duration">
-                🍽️ Dinner: <strong>${sc.dinnerStart || '20:00'}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.dinnerEnd) - parseTimeToMinutes(sc.dinnerStart)) || sc.dinnerDuration || 45}m)</span>
+                🍽️ Dinner: <strong>${formatDisplayTime(sc.dinnerStart || '20:00')}</strong> <span class="font-mono">(${(parseTimeToMinutes(sc.dinnerEnd) - parseTimeToMinutes(sc.dinnerStart)) || sc.dinnerDuration || 45}m)</span>
               </button>
               <button class="btn btn-secondary btn-sm" data-action="open-modal-routine" style="padding:3px 10px;font-size:11px;" title="Customize full daily routine and meal durations">⚙️ Edit Routine</button>
             </div>
@@ -2366,7 +3089,7 @@
             return `
               <div class="agenda-break-row font-mono">
                 <span class="break-line"></span>
-                <span class="break-pill">☕ ${b.title} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m)</span>
+                <span class="break-pill">☕ ${escapeHtml(b.title)} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m)</span>
                 <div class="break-actions-group">
                   <button class="btn btn-sm btn-ghost text-xs" data-action="skip-break" data-break-id="${b.id}" style="padding:2px 8px;" title="Skip break to free time">✕ Skip</button>
                   <button class="btn btn-sm btn-ghost text-xs" data-action="push-break" data-break-id="${b.id}" data-mins="15" style="padding:2px 8px;" title="Push break 15 min later">⏩ +15m</button>
@@ -2381,7 +3104,7 @@
               <div class="agenda-meal-row">
                 <div class="meal-left-meta">
                   <span class="meal-icon">${b.mealKey === 'breakfast' ? '🍳' : b.mealKey === 'dinner' ? '🍽️' : '🍱'}</span>
-                  <span class="meal-title">${b.title}</span>
+                  <span class="meal-title">${escapeHtml(b.title)}</span>
                   <span class="font-mono text-xs text-secondary ml-1">${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m)</span>
                 </div>
                 <div class="meal-actions-group">
@@ -2417,7 +3140,7 @@
           if (b.type === 'free') {
             return `
               <div class="agenda-free-row">
-                <span class="text-xs text-secondary font-mono">🍃 ${b.title} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m free buffer)</span>
+                <span class="text-xs text-secondary font-mono">🍃 ${escapeHtml(b.title)} &middot; ${b.startTimeStr} – ${b.endTimeStr} (${b.duration}m free buffer)</span>
               </div>
             `;
           }
@@ -2456,8 +3179,8 @@
                 <div>${statusBadge}</div>
               </div>
               <div>
-                <h4 class="agenda-title ${isDone ? 'line-through text-muted' : ''}">${b.title}</h4>
-                ${b.subtitle ? `<p class="agenda-subtitle text-secondary mt-1">${b.subtitle}</p>` : ''}
+                <h4 class="agenda-title ${isDone ? 'line-through text-muted' : ''}">${escapeHtml(b.title)}</h4>
+                ${b.subtitle ? `<p class="agenda-subtitle text-secondary mt-1">${escapeHtml(b.subtitle)}</p>` : ''}
               </div>
               ${isTask && !isDone ? `
                 <div class="agenda-actions">
@@ -2489,11 +3212,11 @@
     const isNow = (state.viewDate || getTodayISO()) === getTodayISO() && curMin >= dayStartMin && curMin <= dayEndMin;
 
     const hours = [];
-    hours.push({ min: dayStartMin, label: formatTime12(dayStartMin), top: 0 });
+    hours.push({ min: dayStartMin, label: formatDisplayTime(dayStartMin), top: 0 });
     const firstRoundHour = Math.ceil(dayStartMin / 60) * 60;
     for (let m = firstRoundHour; m <= dayEndMin; m += 60) {
       if (m > dayStartMin) {
-        hours.push({ min: m, label: formatTime12(m), top: (m - dayStartMin) * pxPerMin });
+        hours.push({ min: m, label: formatDisplayTime(m), top: (m - dayStartMin) * pxPerMin });
       }
     }
 
@@ -2513,7 +3236,7 @@
             <div class="timeline-playhead" style="top:${playheadTop}px;">
               <div class="playhead-badge font-mono">
                 <span class="playhead-dot"></span>
-                <span>${formatTime12(curMin)} NOW</span>
+                <span>${formatDisplayTime(curMin)} NOW</span>
               </div>
               <div class="playhead-line"></div>
             </div>
@@ -2544,8 +3267,8 @@
                     </div>
                   </div>
                   <div class="block-main">
-                    <span class="block-title">${b.title}</span>
-                    ${b.subtitle && !isShort ? `<span class="text-xs text-secondary">${b.subtitle}</span>` : ''}
+                    <span class="block-title">${escapeHtml(b.title)}</span>
+                    ${b.subtitle && !isShort ? `<span class="text-xs text-secondary">${escapeHtml(b.subtitle)}</span>` : ''}
                   </div>
                   ${isTask && b.status !== 'completed' && !isShort ? `
                     <div class="block-actions">
@@ -2630,7 +3353,7 @@
           <div class="toolbar-top-row">
             <div class="search-box">
               <span class="search-icon">🔍</span>
-              <input type="text" class="input-text search-input" id="task-search-input" placeholder="Search tasks..." value="${taskFilter.query}" />
+              <input type="text" class="input-text search-input" id="task-search-input" placeholder="Search tasks..." value="${escapeHtml(taskFilter.query)}" />
             </div>
             <div class="sort-box">
               <span class="text-xs text-secondary mr-2">Sort:</span>
@@ -2677,12 +3400,13 @@
                     <div class="task-meta-top">
                       <span class="badge" style="background:${col}18;color:${col};">${lab}</span>
                       <span class="badge badge-${(t.priority || 'Medium').toLowerCase()}">${t.priority || 'Medium'}</span>
+                      ${t.startTime ? `<span class="badge font-mono text-xs" style="background:rgba(245,158,11,0.15);color:var(--accent);">⏰ Starts ${formatDisplayTime(t.startTime)}</span>` : ''}
                       <span class="task-date-pill font-mono text-xs ${isOverdue ? 'date-overdue' : ''}">
                         📅 ${relativeDateLabel(t.deadline, today)}
                       </span>
                     </div>
-                    <h3 class="task-title ${isDone ? 'line-through text-muted' : ''}">${t.title}</h3>
-                    ${t.notes ? `<p class="text-xs text-secondary">${t.notes}</p>` : ''}
+                    <h3 class="task-title ${isDone ? 'line-through text-muted' : ''}">${escapeHtml(t.title)}</h3>
+                    ${t.notes ? `<p class="text-xs text-secondary">${escapeHtml(t.notes)}</p>` : ''}
                     ${t.subtasks && t.subtasks.length > 0 ? `
                       <div class="mt-2 text-xs text-muted">
                         ${t.subtasks.filter(s => s.done).length}/${t.subtasks.length} subtasks completed
@@ -2882,15 +3606,40 @@
   // -------------------------------------------------------------------------
   let selectedWeeklyDate = getTodayISO();
 
+  function getDailyTaskProgress(dateIso, tasks = state.tasks, studySessions = state.studySessions) {
+    const dayTasks = tasks.filter(t => t.deadline === dateIso);
+    const completedCount = dayTasks.filter(t => t.status === 'completed').length;
+    const studiedTaskIds = new Set(studySessions.filter(s => s.taskId).map(s => s.taskId));
+    const startedCount = dayTasks.filter(t => {
+      if (t.status === 'completed') return false;
+      const hasPartialTime = t.remaining != null && t.duration != null && Number(t.remaining) < Number(t.duration);
+      return hasPartialTime || studiedTaskIds.has(t.id);
+    }).length;
+
+    let status = 'none';
+    if (dayTasks.length > 0) {
+      if (completedCount === dayTasks.length) status = 'done';
+      else if (completedCount > 0 || startedCount > 0) status = 'in-progress';
+      else status = 'not-started';
+    }
+
+    return { status, taskCount: dayTasks.length, completedCount, startedCount };
+  }
+
   function renderWeeklyHtml() {
     const { dayStats, capacityHours, plannedHours, bufferHours, studiedHours } = getWeeklyCapacityStats(state.fixedEvents, state.tasks, state.studySessions);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    const curStat = dayStats.find(d => d.dateIso === selectedWeeklyDate) || dayStats[0];
-    const wday = curStat.weekday;
+    const wday = getDayOfWeek(selectedWeeklyDate);
     const dayFixed = state.fixedEvents.filter(ev => Array.isArray(ev.days) && ev.days.includes(wday));
     const dayTasks = state.tasks.filter(t => t.deadline === selectedWeeklyDate);
     const daySessions = state.studySessions.filter(s => s.date === selectedWeeklyDate);
+    const dayProgress = getDailyTaskProgress(selectedWeeklyDate);
+    const progressSummary = dayProgress.status === 'none'
+      ? 'No tasks planned.'
+      : dayProgress.status === 'done'
+        ? `All ${dayProgress.taskCount} tasks completed.`
+        : `${dayProgress.completedCount} of ${dayProgress.taskCount} tasks completed${dayProgress.startedCount ? ` · ${dayProgress.startedCount} in progress` : ''}.`;
 
     return `
       <div class="weekly-page animate-fade-in">
@@ -2916,9 +3665,10 @@
                   <span class="text-secondary">${stat.dateIso.slice(5)}</span>
                 </div>
                 <div class="mt-2 font-mono font-bold text-base text-amber">
-                  ${formatDuration(stat.studiedMin || stat.dueMin)}
+                  ${formatDuration(stat.studiedMin)} <span class="text-xs font-normal text-secondary">studied</span>
                 </div>
-                <div class="text-xs text-muted font-mono mt-1">Cap: ${formatDuration(stat.dailyCap)}</div>
+                <div class="text-xs text-secondary font-mono mt-1">Tasks due: ${formatDuration(stat.dueMin)}</div>
+                <div class="text-xs text-muted font-mono mt-1">Planned time: ${formatDuration(stat.dailyCap)}</div>
               </button>
             `).join('')}
           </div>
@@ -2926,17 +3676,21 @@
 
         <div class="card">
           <h3 class="font-semibold text-base mb-3">Details for ${formatDateDisplay(selectedWeeklyDate)}</h3>
+          <div class="card mb-3" style="border-color:${dayProgress.status === 'done' ? '#10b981' : dayProgress.status === 'in-progress' ? '#f59e0b' : dayProgress.status === 'not-started' ? '#ef4444' : 'var(--border-card)'};">
+            <span class="label-title">Daily progress</span>
+            <p class="text-sm">${progressSummary}</p>
+          </div>
           <div class="grid-3">
             <div class="card">
-              <span class="label-title">Fixed Lectures (${dayFixed.length})</span>
-              ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${f.title}</strong> <span class="font-mono text-muted">(${f.start}-${f.end})</span></div>`).join('')}
+              <span class="label-title">Scheduled Events (${dayFixed.length})</span>
+              ${dayFixed.map(f => `<div class="text-xs py-1"><strong>${escapeHtml(f.title)}</strong> <span class="font-mono text-muted">(${formatDisplayTime(f.start)} – ${formatDisplayTime(f.end)})</span></div>`).join('')}
             </div>
             <div class="card">
               <span class="label-title">Tasks Due (${dayTasks.length})</span>
-              ${dayTasks.map(t => `<div class="text-xs py-1 ${t.status === 'completed' ? 'line-through text-muted' : ''}"><strong>${t.title}</strong> (${t.remaining}m)</div>`).join('')}
+              ${dayTasks.map(t => `<div class="text-xs py-1 ${t.status === 'completed' ? 'line-through text-muted' : ''}"><strong>${escapeHtml(t.title)}</strong> (${t.remaining}m)</div>`).join('')}
             </div>
             <div class="card">
-              <span class="label-title">Logged Sessions (${daySessions.length})</span>
+              <span class="label-title">Study Sessions Logged (${daySessions.length})</span>
               ${daySessions.map(s => `<div class="text-xs py-1"><strong>${s.taskTitle}</strong> <span class="font-mono text-accent">(${s.actualMin}m)</span></div>`).join('')}
             </div>
           </div>
@@ -3009,11 +3763,107 @@
   // -------------------------------------------------------------------------
   function renderSettingsHtml() {
     const sc = state.scheduleConfig || DEFAULT_SCHEDULE_CONFIG;
+    const session = getAuthSession();
+    const userName = session?.name || 'Student';
+    const userEmail = session?.email || 'student@adapt.study';
+    const userId = session?.userId || 'usr_anonymous';
+    const initials = getUserInitials(userName);
+    const expiresDateStr = session?.expiresAt ? new Date(session.expiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Session active';
+    const isDemo = userEmail.toLowerCase() === 'demo@adapt.study';
+
     return `
       <div class="settings-page animate-fade-in">
         <div class="card mb-4">
           <h1 class="font-bold text-xl mb-1">Application Settings</h1>
-          <p class="text-xs text-secondary">Manage theme, schedule times, categories, backups, and reset options.</p>
+          <p class="text-xs text-secondary">Manage your user profile, security, daily schedule, categories, and data backups.</p>
+        </div>
+
+        <!-- 👤 Account & Security Profile Card -->
+        <div class="card account-profile-card mb-4">
+          <div class="account-header-row">
+            <div class="account-avatar-lg">${initials}</div>
+            <div style="flex: 1;">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="account-info-title">${escapeHtml(userName)}</span>
+                <span class="badge ${isDemo ? 'badge-medium' : 'badge-low'} text-xs">
+                  ${isDemo ? '⚡ Demo Student' : '🔒 Verified Account'}
+                </span>
+              </div>
+              <div class="account-info-email font-mono">${escapeHtml(userEmail)}</div>
+            </div>
+            <button class="btn btn-secondary text-danger btn-sm" id="btn-settings-logout">🚪 Sign Out</button>
+          </div>
+
+          <div class="account-meta-grid">
+            <div class="account-meta-item">
+              <span class="account-meta-label">User ID</span>
+              <span class="account-meta-val font-mono" style="font-size: 11px;">${userId}</span>
+            </div>
+            <div class="account-meta-item">
+              <span class="account-meta-label">Session Status</span>
+              <span class="account-meta-val font-mono" style="font-size: 11px; color: #10b981;">● Active (expires ${expiresDateStr})</span>
+            </div>
+            <div class="account-meta-item">
+              <span class="account-meta-label">Data Namespace</span>
+              <span class="account-meta-val font-mono" style="font-size: 11px;">adapt_study_planner_state_${userId}</span>
+            </div>
+          </div>
+
+          <!-- Change Password Subform -->
+          <div class="mt-4 pt-3" style="border-top: 1px solid var(--border-subtle);">
+            <div class="flex justify-between items-center mb-2">
+              <h4 class="font-semibold text-sm">🔑 Change Password</h4>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-toggle-change-pwd-box" style="font-size: 11px; color: var(--accent);">
+                Show / Hide Form
+              </button>
+            </div>
+            
+            <div id="settings-change-pwd-box" style="display: none; margin-top: 12px;">
+              <form id="form-change-password" class="flex flex-col gap-3">
+                <div id="change-pwd-alert" style="display: none;" class="auth-alert"></div>
+                
+                <div>
+                  <label class="label-title text-xs">Current Password</label>
+                  <div class="login-password-wrapper">
+                    <input type="password" id="change-current-pwd" class="input-text font-mono" placeholder="Enter current password" required />
+                    <button type="button" class="login-password-toggle" id="btn-toggle-chg-curr">👁️</button>
+                  </div>
+                </div>
+
+                <div class="grid-2">
+                  <div>
+                    <label class="label-title text-xs">New Password</label>
+                    <div class="login-password-wrapper">
+                      <input type="password" id="change-new-pwd" class="input-text font-mono" placeholder="Min. 6 characters" required />
+                      <button type="button" class="login-password-toggle" id="btn-toggle-chg-new">👁️</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="label-title text-xs">Confirm New Password</label>
+                    <div class="login-password-wrapper">
+                      <input type="password" id="change-confirm-pwd" class="input-text font-mono" placeholder="Confirm new password" required />
+                      <button type="button" class="login-password-toggle" id="btn-toggle-chg-conf">👁️</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Password strength indicator -->
+                <div id="change-pwd-strength-box" style="display: none;" class="password-strength-wrap">
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-secondary">Password strength:</span>
+                    <span id="change-pwd-strength-hint" class="font-semibold">Weak</span>
+                  </div>
+                  <div class="password-strength-bar">
+                    <div id="change-pwd-strength-fill" class="password-strength-fill"></div>
+                  </div>
+                </div>
+
+                <div class="flex justify-end gap-2 mt-1">
+                  <button type="submit" class="btn btn-primary btn-sm" id="btn-submit-change-pwd">🔒 Update Password</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
         <div class="card mb-4">
@@ -3027,16 +3877,33 @@
         </div>
 
         <div class="card mb-4">
+          <div class="flex justify-between items-center flex-wrap gap-3">
+            <div>
+              <h3 class="font-semibold text-sm">Time Format Display</h3>
+              <p class="text-xs text-secondary">Choose whether the planner displays and inputs times in 12-hour (AM/PM) or 24-hour format. Current: <strong>${getTimeFormat() === '24h' ? '24-Hour (00:00 – 23:59)' : '12-Hour (AM/PM)'}</strong></p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn btn-sm ${getTimeFormat() !== '24h' ? 'btn-primary' : 'btn-secondary'}" id="btn-time-format-12h" title="Switch to 12-hour AM/PM format">
+                🕒 12-Hour (AM/PM)
+              </button>
+              <button type="button" class="btn btn-sm ${getTimeFormat() === '24h' ? 'btn-primary' : 'btn-secondary'}" id="btn-time-format-24h" title="Switch to 24-hour format">
+                ⏱️ 24-Hour (00:00)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-4">
           <h3 class="font-semibold text-sm mb-1">⏰ Daily Schedule Configuration</h3>
           <p class="text-xs text-secondary mb-3">Set when your day starts/ends and meal break windows. The timeline adapts to your routine.</p>
           <div class="grid-2 mb-3">
             <div>
               <label class="label-title">Day Starts At</label>
-              <input type="time" class="input-text font-mono" id="cfg-day-start" value="${sc.dayStart}" />
+              ${renderTimeInput('cfg-day-start', sc.dayStart || '08:00')}
             </div>
             <div>
               <label class="label-title">Day Ends At</label>
-              <input type="time" class="input-text font-mono" id="cfg-day-end" value="${sc.dayEnd}" />
+              ${renderTimeInput('cfg-day-end', sc.dayEnd || '23:00')}
             </div>
           </div>
           <div class="card p-3 mb-3" style="background: var(--bg-card-hover);">
@@ -3050,7 +3917,7 @@
             <div class="grid-3 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-breakfast-start" value="${sc.breakfastStart || '08:30'}" />
+                ${renderTimeInput('cfg-breakfast-start', sc.breakfastStart || '08:30')}
               </div>
               <div>
                 <label class="label-title">Duration (min)</label>
@@ -3058,7 +3925,7 @@
               </div>
               <div>
                 <label class="label-title">End Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-breakfast-end" value="${sc.breakfastEnd || '09:00'}" />
+                ${renderTimeInput('cfg-breakfast-end', sc.breakfastEnd || '09:00')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-wrap">
@@ -3072,7 +3939,7 @@
             <div class="grid-3 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-lunch-start" value="${sc.lunchStart || '13:00'}" />
+                ${renderTimeInput('cfg-lunch-start', sc.lunchStart || '13:00')}
               </div>
               <div>
                 <label class="label-title">Duration (min)</label>
@@ -3080,7 +3947,7 @@
               </div>
               <div>
                 <label class="label-title">End Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-lunch-end" value="${sc.lunchEnd || '13:45'}" />
+                ${renderTimeInput('cfg-lunch-end', sc.lunchEnd || '13:45')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-wrap">
@@ -3094,7 +3961,7 @@
             <div class="grid-3 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-dinner-start" value="${sc.dinnerStart || '20:00'}" />
+                ${renderTimeInput('cfg-dinner-start', sc.dinnerStart || '20:00')}
               </div>
               <div>
                 <label class="label-title">Duration (min)</label>
@@ -3102,7 +3969,7 @@
               </div>
               <div>
                 <label class="label-title">End Time</label>
-                <input type="time" class="input-text font-mono" id="cfg-dinner-end" value="${sc.dinnerEnd || '20:45'}" />
+                ${renderTimeInput('cfg-dinner-end', sc.dinnerEnd || '20:45')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-wrap">
@@ -3158,16 +4025,6 @@
               <p class="text-xs text-secondary">Completely wipes all mock tasks, lectures, college courses, and logs so you can use Adapt for your real daily study life.</p>
             </div>
             <button class="btn btn-danger" id="btn-trigger-reset">🗑️ Clear All Data (Clean Slate)</button>
-          </div>
-        </div>
-
-        <div class="card mb-4" style="border: 1px solid var(--border-focus);">
-          <div class="flex justify-between items-center flex-wrap gap-2">
-            <div>
-              <h3 class="font-semibold text-sm">Session Management</h3>
-              <p class="text-xs text-secondary">Sign out of your current Google account.</p>
-            </div>
-            <button class="btn btn-secondary" id="btn-sign-out" style="color: var(--color-medium);">🚪 Sign Out</button>
           </div>
         </div>
       </div>
@@ -3234,15 +4091,7 @@
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
     
-    // Build task map for all dates
-    const tasksByDate = {};
-    state.tasks.forEach(t => {
-      if (t.deadline) {
-        if (!tasksByDate[t.deadline]) tasksByDate[t.deadline] = [];
-        tasksByDate[t.deadline].push(t);
-      }
-    });
-    
+
     // Calendar navigation (1st of prev month, 1st of next month)
     const prevMonthDate = new Date(year, month - 1, 1);
     const nextMonthDate = new Date(year, month + 1, 1);
@@ -3258,16 +4107,11 @@
       const pYear = prevMonthDate.getFullYear();
       const pMonth = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
       const dateISO = `${pYear}-${pMonth}-${String(d).padStart(2, '0')}`;
-      const dayTasks = tasksByDate[dateISO] || [];
-      const hasTasks = dayTasks.length > 0;
-      const allDone = hasTasks && dayTasks.every(t => t.status === 'completed');
-      const hasOverdue = hasTasks && dayTasks.some(t => t.status !== 'completed' && dateISO < today);
+      const progress = getDailyTaskProgress(dateISO);
       const isSelected = dateISO === viewDate;
-
-      let taskClass = '';
-      if (allDone) taskClass = 'cal-cell-done';
-      else if (hasOverdue) taskClass = 'cal-cell-overdue';
-      else if (hasTasks) taskClass = 'cal-cell-pending';
+      const taskClass = progress.status === 'done' ? 'cal-cell-done'
+        : progress.status === 'in-progress' ? 'cal-cell-pending'
+          : progress.status === 'not-started' ? 'cal-cell-overdue' : '';
 
       cellsHtml += `
         <button class="cal-cell cal-cell-adjacent ${isSelected ? 'cal-cell-selected' : ''} ${taskClass}" 
@@ -3282,20 +4126,17 @@
       const dateISO = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const isToday = dateISO === today;
       const isSelected = dateISO === viewDate;
-      const dayTasks = tasksByDate[dateISO] || [];
-      const hasTasks = dayTasks.length > 0;
-      const allDone = hasTasks && dayTasks.every(t => t.status === 'completed');
-      const hasOverdue = hasTasks && dayTasks.some(t => t.status !== 'completed' && dateISO < today);
-      
-      let taskClass = '';
-      if (allDone) taskClass = 'cal-cell-done';
-      else if (hasOverdue) taskClass = 'cal-cell-overdue';
-      else if (hasTasks) taskClass = 'cal-cell-pending';
-      else taskClass = 'cal-cell-current';
+      const progress = getDailyTaskProgress(dateISO);
+      const taskClass = progress.status === 'done' ? 'cal-cell-done'
+        : progress.status === 'in-progress' ? 'cal-cell-pending'
+          : progress.status === 'not-started' ? 'cal-cell-overdue' : 'cal-cell-current';
+      const progressLabel = progress.status === 'done' ? 'All tasks completed'
+        : progress.status === 'in-progress' ? 'Work started'
+          : progress.status === 'not-started' ? 'Not started' : 'No tasks';
 
       cellsHtml += `
         <button class="cal-cell ${taskClass} ${isToday ? 'cal-cell-today' : ''} ${isSelected ? 'cal-cell-selected' : ''}" 
-          data-cal-date="${dateISO}" title="${d} ${monthNames[month]} ${year}${hasTasks ? ` — ${dayTasks.length} task(s)` : ''}">
+          data-cal-date="${dateISO}" title="${d} ${monthNames[month]} ${year} — ${progressLabel}" aria-label="${d} ${monthNames[month]} ${year}: ${progressLabel}">
           <span class="cal-date-num">${d}</span>
         </button>
       `;
@@ -3309,16 +4150,11 @@
       const nYear = nextMonthDate.getFullYear();
       const nMonth = String(nextMonthDate.getMonth() + 1).padStart(2, '0');
       const dateISO = `${nYear}-${nMonth}-${String(d).padStart(2, '0')}`;
-      const dayTasks = tasksByDate[dateISO] || [];
-      const hasTasks = dayTasks.length > 0;
-      const allDone = hasTasks && dayTasks.every(t => t.status === 'completed');
-      const hasOverdue = hasTasks && dayTasks.some(t => t.status !== 'completed' && dateISO < today);
+      const progress = getDailyTaskProgress(dateISO);
       const isSelected = dateISO === viewDate;
-
-      let taskClass = '';
-      if (allDone) taskClass = 'cal-cell-done';
-      else if (hasOverdue) taskClass = 'cal-cell-overdue';
-      else if (hasTasks) taskClass = 'cal-cell-pending';
+      const taskClass = progress.status === 'done' ? 'cal-cell-done'
+        : progress.status === 'in-progress' ? 'cal-cell-pending'
+          : progress.status === 'not-started' ? 'cal-cell-overdue' : '';
 
       cellsHtml += `
         <button class="cal-cell cal-cell-adjacent ${isSelected ? 'cal-cell-selected' : ''} ${taskClass}" 
@@ -3358,47 +4194,15 @@
         <div class="cal-grid">
           ${cellsHtml}
         </div>
-        ${state._calendarSelectedTasks ? renderCalendarTaskListHtml() : ''}
-      </div>
-    `;
-  }
-
-  function renderCalendarTaskListHtml() {
-    const dateISO = state.viewDate || getTodayISO();
-    const dayTasks = state.tasks.filter(t => t.deadline === dateISO);
-    
-    return `
-      <div class="cal-task-list">
-        <div class="cal-task-header">
-          <span class="cal-task-header-title">Tasks for ${formatDateDisplay(dateISO)}</span>
-          <span class="cal-task-count-badge font-mono">${dayTasks.length}</span>
+        <div class="flex flex-wrap gap-2 mt-3 text-xs text-secondary" aria-label="Daily progress legend">
+          <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:5px;"></i>All complete</span>
+          <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:5px;"></i>In progress</span>
+          <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:5px;"></i>Not started</span>
         </div>
-        ${dayTasks.length === 0 ? `
-          <div class="cal-task-empty">
-            <p class="text-xs text-secondary">No study tasks due on this date.</p>
-            <button class="btn btn-xs btn-primary mt-2" data-action="open-modal-task" data-preset-date="${dateISO}">+ Add Task for this Day</button>
-          </div>
-        ` : `
-          <div class="cal-task-items">
-            ${dayTasks.map(t => {
-              const col = getCategoryColor(state.categories, t.category);
-              const isDone = t.status === 'completed';
-              return `
-                <div class="cal-task-item ${isDone ? 'cal-task-done' : ''}">
-                  <input type="checkbox" class="task-checkbox" data-task-complete="${t.id}" ${isDone ? 'checked' : ''} />
-                  <span class="cal-task-dot" style="background:${col};"></span>
-                  <span class="cal-task-title ${isDone ? 'line-through text-muted' : ''}">${escapeHtml(t.title)}</span>
-                  <span class="text-xs font-mono text-muted">${t.remaining || 0}m</span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `}
       </div>
     `;
   }
 
-  
   // -------------------------------------------------------------------------
   // DRAG AND DROP HANDLERS
   // -------------------------------------------------------------------------
@@ -3459,6 +4263,22 @@
   // MODALS
 
   // -------------------------------------------------------------------------
+  function renderDateInput(id, value, label) {
+    const accessibleLabel = label.toLowerCase();
+    return `
+      <div class="date-input-control" style="display:flex;align-items:center;gap:8px;width:100%;">
+        <input type="date" class="input-text font-mono" style="flex:1;min-width:0;" id="${id}" value="${value}" aria-label="${label}" />
+        <button type="button" class="btn btn-secondary" style="display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;padding:8px;" data-date-picker-for="${id}" aria-label="Choose ${accessibleLabel}" title="Choose ${accessibleLabel}">
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+            <rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M16 3v4M8 3v4M3 10h18" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+    `;
+  }
+
   function renderModal() {
     const slot = document.getElementById('modal-slot');
     if (!slot) return;
@@ -3488,7 +4308,7 @@
           ` : ''}
           <div>
             <label class="label-title">Task Title *</label>
-            <input type="text" class="input-text" id="task-input-title" value="${data?.title || ''}" required />
+            <input type="text" class="input-text" id="task-input-title" value="${escapeHtml(data?.title || '')}" required />
           </div>
           <div class="grid-2">
             <div>
@@ -3499,19 +4319,33 @@
             </div>
             <div>
               <label class="label-title">Duration (mins)</label>
-              <input type="number" class="input-text font-mono" id="task-input-duration" value="${data?.duration || 45}" min="1" step="1" />
+              <input type="range" class="task-duration-slider" id="task-input-duration-slider" min="1" max="1440" step="1" value="${data?.duration || 45}" aria-label="Task duration slider" />
+              <input type="number" class="input-text font-mono task-duration-manual" id="task-input-duration" value="${data?.duration || 45}" min="1" max="1440" step="1" aria-label="Task duration in minutes" />
+              <div class="task-duration-help"><span>Adjust quickly or enter minutes</span><strong id="task-input-duration-display">${formatDuration(data?.duration || 45)}</strong></div>
             </div>
           </div>
           <div class="grid-2">
             <div>
-              <label class="label-title">Deadline</label>
-              <input type="date" class="input-text font-mono" id="task-input-deadline" value="${data?.deadline || getTodayISO()}" />
+              <label class="label-title" for="task-input-deadline">Deadline</label>
+              ${renderDateInput('task-input-deadline', data?.deadline || getTodayISO(), 'Deadline')}
             </div>
             <div>
               <label class="label-title">Priority</label>
               <select class="select-input" id="task-input-priority">
                 ${['Critical', 'High', 'Medium', 'Low'].map(p => `<option value="${p}" ${data?.priority === p ? 'selected' : ''}>${p}</option>`).join('')}
               </select>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label class="label-title">Start Time (Optional)</label>
+              ${renderTimeInput('task-input-start-time', data?.startTime || '', { allowEmpty: true, placeholder: getTimeFormat() === '24h' ? 'HH:MM (e.g. 14:30)' : 'e.g. 9:00 AM' })}
+              <span class="text-xs text-secondary mt-1 block">Leave empty for automatic flexible scheduling.</span>
+            </div>
+            <div>
+              <label class="label-title">Break After (mins)</label>
+              <input type="number" class="input-text font-mono" id="task-input-break-after" value="${data?.breakAfterMin || 0}" min="0" max="60" step="5" />
+              <span class="text-xs text-secondary mt-1 block">Optional rest buffer after this task.</span>
             </div>
           </div>
           <div class="grid-2">
@@ -3531,7 +4365,7 @@
           </div>
           <div>
             <label class="label-title">Notes / Details</label>
-            <textarea class="textarea-input" id="task-input-notes" placeholder="Any resources or specific goals...">${data?.notes || ''}</textarea>
+            <textarea class="textarea-input" id="task-input-notes" placeholder="Any resources or specific goals...">${escapeHtml(data?.notes || '')}</textarea>
           </div>
         </form>
       `;
@@ -3610,7 +4444,7 @@
           </div>
           <div>
             <label class="label-title">When did it start? (Optional)</label>
-            <input type="time" class="input-text font-mono mt-1" id="lost-time-start" />
+            ${renderTimeInput('lost-time-start', '', { allowEmpty: true, placeholder: getTimeFormat() === '24h' ? 'HH:MM' : 'e.g. 2:30 PM' })}
           </div>
           <div>
             <label class="label-title">Reason / Distraction</label>
@@ -3639,7 +4473,7 @@
       body = rec ? `
         <div class="card p-3">
           <span class="badge badge-${(rec.task.priority || 'medium').toLowerCase()}">${rec.task.priority} Priority</span>
-          <h3 class="font-bold text-base mt-2">${rec.task.title}</h3>
+          <h3 class="font-bold text-base mt-2">${escapeHtml(rec.task.title)}</h3>
           <p class="text-xs text-secondary mt-1">${rec.reason}</p>
         </div>
       ` : '<p class="text-sm text-secondary">All tasks complete! Add a new goal or enjoy your break.</p>';
@@ -3691,7 +4525,7 @@
       body = `
         <form id="form-college-subj" class="flex flex-col gap-3">
           <div><label class="label-title">Subject Name *</label><input type="text" class="input-text" id="col-subj-name" required /></div>
-          <div><label class="label-title">Exam Date</label><input type="date" class="input-text font-mono" id="col-subj-date" /></div>
+          <div><label class="label-title" for="col-subj-date">Exam Date</label>${renderDateInput('col-subj-date', '', 'Exam date')}</div>
           <div class="card p-3" style="background:#06b6d410;border:1px dashed #06b6d444;">
             <label class="label-title">✨ Quick Add Syllabus (Smart Parser)</label>
             <p class="text-xs text-secondary mb-2">Enter all chapters/topics separated by commas, semicolons, or new lines. They'll be auto-added as syllabus topics.</p>
@@ -3739,8 +4573,8 @@
           <div><label class="label-title">Event Title *</label><input type="text" class="input-text" id="fixed-input-title" placeholder="e.g. Data Structures Lecture" required /></div>
           <div><label class="label-title">Subtitle / Location</label><input type="text" class="input-text" id="fixed-input-subtitle" placeholder="e.g. Room 401 • Prof. Sharma" /></div>
           <div class="grid-2">
-            <div><label class="label-title">Start Time</label><input type="time" class="input-text font-mono" id="fixed-input-start" value="10:00" /></div>
-            <div><label class="label-title">End Time</label><input type="time" class="input-text font-mono" id="fixed-input-end" value="11:30" /></div>
+            <div><label class="label-title">Start Time</label>${renderTimeInput('fixed-input-start', '10:00')}</div>
+            <div><label class="label-title">End Time</label>${renderTimeInput('fixed-input-end', '11:30')}</div>
           </div>
           <div>
             <label class="label-title">Category</label>
@@ -3764,7 +4598,7 @@
       `;
     } else if (name === 'session') {
       title = '⏱️ Log Study Session';
-      const taskOpts = state.tasks.map(t => `<option value="${t.id}">${t.title}</option>`).join('');
+      const taskOpts = state.tasks.map(t => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join('');
       body = `
         <form id="form-session" class="flex flex-col gap-3">
           <div>
@@ -3772,7 +4606,7 @@
             <select class="select-input" id="sess-input-task">${taskOpts || '<option value="">No tasks — create one first</option>'}</select>
           </div>
           <div class="grid-2">
-            <div><label class="label-title">Date</label><input type="date" class="input-text font-mono" id="sess-input-date" value="${getTodayISO()}" /></div>
+            <div><label class="label-title" for="sess-input-date">Date</label>${renderDateInput('sess-input-date', getTodayISO(), 'Date')}</div>
             <div><label class="label-title">Actual Minutes</label><input type="number" class="input-text font-mono" id="sess-input-min" value="45" min="1" /></div>
           </div>
         </form>
@@ -3851,11 +4685,11 @@
           <div class="grid-2">
             <div>
               <label class="label-title">🌅 Day Starts At</label>
-              <input type="time" class="input-text font-mono" id="routine-day-start" value="${sc.dayStart || '08:00'}" />
+              ${renderTimeInput('routine-day-start', sc.dayStart || '08:00')}
             </div>
             <div>
               <label class="label-title">🌙 Day Ends At</label>
-              <input type="time" class="input-text font-mono" id="routine-day-end" value="${sc.dayEnd || '23:00'}" />
+              ${renderTimeInput('routine-day-end', sc.dayEnd || '23:00')}
             </div>
           </div>
 
@@ -3870,7 +4704,7 @@
             <div class="grid-2 gap-2 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="routine-breakfast-start" value="${sc.breakfastStart || '08:30'}" />
+                ${renderTimeInput('routine-breakfast-start', sc.breakfastStart || '08:30')}
               </div>
               <div>
                 <label class="label-title">Duration (minutes)</label>
@@ -3882,7 +4716,7 @@
               ${[15, 20, 30, 45, 60].map(m => `<button type="button" class="duration-pill-btn ${m === bDur ? 'active' : ''}" data-set-dur="routine-breakfast-duration" data-val="${m}">${m}m</button>`).join('')}
             </div>
             <div class="text-xs text-secondary font-mono" id="routine-breakfast-preview">
-              Window: <strong class="text-primary">${sc.breakfastStart || '08:30'} – ${minutesToTime(parseTimeToMinutes(sc.breakfastStart || '08:30') + bDur)}</strong> (${bDur} mins)
+              Window: <strong class="text-primary">${formatDisplayTime(sc.breakfastStart || '08:30')} – ${formatDisplayTime(parseTimeToMinutes(sc.breakfastStart || '08:30') + bDur)}</strong> (${bDur} mins)
             </div>
           </div>
 
@@ -3893,7 +4727,7 @@
             <div class="grid-2 gap-2 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="routine-lunch-start" value="${sc.lunchStart || '13:00'}" />
+                ${renderTimeInput('routine-lunch-start', sc.lunchStart || '13:00')}
               </div>
               <div>
                 <label class="label-title">Duration (minutes)</label>
@@ -3905,7 +4739,7 @@
               ${[20, 30, 45, 60, 75].map(m => `<button type="button" class="duration-pill-btn ${m === lDur ? 'active' : ''}" data-set-dur="routine-lunch-duration" data-val="${m}">${m}m</button>`).join('')}
             </div>
             <div class="text-xs text-secondary font-mono" id="routine-lunch-preview">
-              Window: <strong class="text-primary">${sc.lunchStart || '13:00'} – ${minutesToTime(parseTimeToMinutes(sc.lunchStart || '13:00') + lDur)}</strong> (${lDur} mins)
+              Window: <strong class="text-primary">${formatDisplayTime(sc.lunchStart || '13:00')} – ${formatDisplayTime(parseTimeToMinutes(sc.lunchStart || '13:00') + lDur)}</strong> (${lDur} mins)
             </div>
           </div>
 
@@ -3916,7 +4750,7 @@
             <div class="grid-2 gap-2 mb-2">
               <div>
                 <label class="label-title">Start Time</label>
-                <input type="time" class="input-text font-mono" id="routine-dinner-start" value="${sc.dinnerStart || '20:00'}" />
+                ${renderTimeInput('routine-dinner-start', sc.dinnerStart || '20:00')}
               </div>
               <div>
                 <label class="label-title">Duration (minutes)</label>
@@ -3928,7 +4762,7 @@
               ${[20, 30, 45, 60, 90].map(m => `<button type="button" class="duration-pill-btn ${m === dDur ? 'active' : ''}" data-set-dur="routine-dinner-duration" data-val="${m}">${m}m</button>`).join('')}
             </div>
             <div class="text-xs text-secondary font-mono" id="routine-dinner-preview">
-              Window: <strong class="text-primary">${sc.dinnerStart || '20:00'} – ${minutesToTime(parseTimeToMinutes(sc.dinnerStart || '20:00') + dDur)}</strong> (${dDur} mins)
+              Window: <strong class="text-primary">${formatDisplayTime(sc.dinnerStart || '20:00')} – ${formatDisplayTime(parseTimeToMinutes(sc.dinnerStart || '20:00') + dDur)}</strong> (${dDur} mins)
             </div>
           </div>
         </div>
@@ -3997,14 +4831,14 @@
               <span class="text-xs text-secondary">${tomorrowFixed.length} fixed event(s)</span>
             </div>
             <div class="tomorrow-schedule-chips">
-              ${sc.breakfastEnabled !== false ? `<span class="tomorrow-schedule-chip chip-meal">🍳 Breakfast ${sc.breakfastStart || '08:30'}</span>` : ''}
+              ${sc.breakfastEnabled !== false ? `<span class="tomorrow-schedule-chip chip-meal">🍳 Breakfast ${formatDisplayTime(sc.breakfastStart || '08:30')}</span>` : ''}
               ${tomorrowFixed.map(fe => `
                 <span class="tomorrow-schedule-chip chip-fixed">
-                  <strong>📌 ${escapeHtml(fe.title)}</strong> (${fe.start} – ${fe.end})
+                  <strong>📌 ${escapeHtml(fe.title)}</strong> (${formatDisplayTime(fe.start)} – ${formatDisplayTime(fe.end)})
                 </span>
               `).join('')}
-              <span class="tomorrow-schedule-chip chip-meal">🍱 Lunch ${sc.lunchStart || '13:00'}</span>
-              <span class="tomorrow-schedule-chip chip-meal">🍽️ Dinner ${sc.dinnerStart || '20:00'}</span>
+              <span class="tomorrow-schedule-chip chip-meal">🍱 Lunch ${formatDisplayTime(sc.lunchStart || '13:00')}</span>
+              <span class="tomorrow-schedule-chip chip-meal">🍽️ Dinner ${formatDisplayTime(sc.dinnerStart || '20:00')}</span>
             </div>
           </div>
 
@@ -4108,8 +4942,15 @@
       `;
     } else if (name === 'brainDump') {
       title = '🧠 Auto-Schedule Week';
-      const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-      const dayFullNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const daysInfo = [
+        { letter: 'S', short: 'Sun', full: 'Sunday' },
+        { letter: 'M', short: 'Mon', full: 'Monday' },
+        { letter: 'T', short: 'Tue', full: 'Tuesday' },
+        { letter: 'W', short: 'Wed', full: 'Wednesday' },
+        { letter: 'T', short: 'Thu', full: 'Thursday' },
+        { letter: 'F', short: 'Fri', full: 'Friday' },
+        { letter: 'S', short: 'Sat', full: 'Saturday' },
+      ];
       const todayDay = new Date().getDay();
       
       body = `
@@ -4129,10 +4970,11 @@
             </div>
             <p class="text-xs text-secondary mb-3">Click any day to cross it out and exclude it from the schedule. Tasks will be distributed only across active days.</p>
             <div class="brain-dump-days-row">
-              ${dayLabels.map((l, i) => `
+              ${daysInfo.map((d, i) => `
                 <button type="button" class="day-circle-toggle day-active ${i === todayDay ? 'is-today' : ''}" 
-                  data-brain-day="${i}" data-active="true" title="${dayFullNames[i]} - Active (click to exclude)">
-                  <span class="day-letter">${l}</span>
+                  data-brain-day="${i}" data-active="true" title="${d.full} - Active (click to exclude)">
+                  <span class="day-letter">${d.letter}</span>
+                  <span class="day-short-name">${d.short}</span>
                   ${i === todayDay ? '<span class="day-today-dot" title="Today"></span>' : ''}
                 </button>
               `).join('')}
@@ -4159,7 +5001,7 @@
       <div class="modal-backdrop" id="modal-backdrop">
         <div class="modal-content ${name === 'planNextDay' || name === 'brainDump' ? 'modal-content-lg' : ''} animate-fade-in">
           <div class="modal-header">
-            <h3 class="modal-title font-semibold">${title}</h3>
+            <h3 class="modal-title font-semibold">${escapeHtml(title)}</h3>
             <button class="modal-close-btn" data-action="close-modal">✕</button>
           </div>
           <div class="modal-body">${body}</div>
@@ -4174,6 +5016,9 @@
   function attachModalEventListeners() {
     if (!state.activeModal) return;
     const { name, data } = state.activeModal;
+
+    // Initialize custom time inputs inside modal
+    initTimeInputs(document.getElementById('modal-slot'));
 
     // Modal Close
     document.querySelectorAll('[data-action="close-modal"]').forEach(b => {
@@ -4201,6 +5046,7 @@
         const deadlineInput = document.getElementById('task-input-deadline');
         const prioritySelect = document.getElementById('task-input-priority');
         const catSelect = document.getElementById('task-input-cat');
+        const startTimeInput = document.getElementById('task-input-start-time');
 
         if (titleInput && parsed.title) {
           titleInput.value = parsed.title;
@@ -4223,11 +5069,14 @@
         if (catSelect && parsed.categoryId) {
           catSelect.value = parsed.categoryId;
         }
+        if (startTimeInput && parsed.startTime) {
+          startTimeInput.value = parsed.startTime;
+        }
 
         if (nlpPreview) {
-          nlpPreview.innerHTML = `<span style="color:#10b981;font-weight:600;">✓ Applied: "${escapeHtml(parsed.title)}" due ${formatDateDisplay(parsed.deadline)} (${parsed.duration}m, ${parsed.priority})</span>`;
+          nlpPreview.innerHTML = `<span style="color:#10b981;font-weight:600;">✓ Applied: "${escapeHtml(parsed.title)}" due ${formatDateDisplay(parsed.deadline)} (${parsed.duration}m, ${parsed.priority}${parsed.startTime ? ', ' + formatDisplayTime(parsed.startTime) : ''})</span>`;
         }
-        showBanner(`Parsed & applied: "${parsed.title}" due ${formatDateDisplay(parsed.deadline)}`, 'info');
+        showBanner(`Parsed & applied: "${parsed.title}" due ${formatDateDisplay(parsed.deadline)}${parsed.startTime ? ' at ' + formatDisplayTime(parsed.startTime) : ''}`, 'info');
       };
 
       if (nlpInput) {
@@ -4254,6 +5103,7 @@
                 <span class="badge" style="background:rgba(6,182,212,0.15);color:#06b6d4;">📅 ${parsed.deadline}</span>
                 <span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;">⏱ ${parsed.duration}m</span>
                 <span class="badge" style="background:rgba(16,185,129,0.15);color:#10b981;">⚡ ${parsed.priority}</span>
+                ${parsed.startTime ? `<span class="badge" style="background:rgba(59,130,246,0.15);color:#60a5fa;">⏰ ${formatDisplayTime(parsed.startTime)}</span>` : ''}
                 <span class="badge" style="background:rgba(255,255,255,0.08);color:var(--text-secondary);">📁 ${escapeHtml(matchedCat)}</span>
               </div>
             `;
@@ -4265,7 +5115,20 @@
         nlpBtn.onclick = applyParsedTask;
       }
 
-      const saveBtn = document.getElementById('btn-save-task');
+      const durationInput = document.getElementById('task-input-duration');
+      const durationSlider = document.getElementById('task-input-duration-slider');
+      const durationDisplay = document.getElementById('task-input-duration-display');
+      const syncDurationControls = (source) => {
+        const value = Number(source === 'slider' ? durationSlider?.value : durationInput?.value);
+        if (!Number.isFinite(value) || value < 1 || value > 1440) return;
+        if (source === 'slider' && durationInput) durationInput.value = String(value);
+        if (source === 'manual' && durationSlider) durationSlider.value = String(value);
+        if (durationDisplay) durationDisplay.textContent = formatDuration(value);
+      };
+durationSlider?.addEventListener('input', () => syncDurationControls('slider'));
+      durationInput?.addEventListener('input', () => syncDurationControls('manual'));
+      
+            const saveBtn = document.getElementById('btn-save-task');
       if (saveBtn) {
         saveBtn.onclick = () => {
           const title = document.getElementById('task-input-title')?.value?.trim();
@@ -4286,7 +5149,7 @@
           const notes = document.getElementById('task-input-notes')?.value || '';
           const startTime = document.getElementById('task-input-start-time')?.value?.trim() || '';
           if (startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
-            showBanner('Fixed start time must be in 24h format (HH:MM), e.g. 14:00', 'warning');
+            showBanner('Fixed start time must be a valid time (e.g. 9:00 AM or 14:00)', 'warning');
             return;
           }
           const rawBreak = Number(document.getElementById('task-input-break-after')?.value) || 0;
@@ -4443,6 +5306,20 @@
           const curMin = getCurrentTimeMinutes(state.currentTime);
           const startInput = document.getElementById('lost-time-start')?.value;
           const startMin = startInput ? parseTimeToMinutes(startInput) : Math.max(0, curMin - min);
+          const endMin = startMin + min;
+
+          // Check if lost time conflicts with any Fixed Event
+          const conflictingFixed = (state.timeline || []).find(b => 
+            (b.type === 'fixed' || b.type === 'meal') &&
+            Math.max(startMin, b.startMin) < Math.min(endMin, b.endMin)
+          );
+
+          if (conflictingFixed) {
+            showBanner(`Cannot reschedule fixed event: "${conflictingFixed.title}" (${formatDisplayTime(conflictingFixed.startMin)} – ${formatDisplayTime(conflictingFixed.endMin)}) is a fixed event and cannot be moved. Only non-fixed study tasks can be rescheduled.`, 'warning');
+            return;
+          }
+          
+          const newLostId = `lost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           
           const res = replanAfterLostTime({
             currentTimeline: state.timeline,
@@ -4451,11 +5328,12 @@
             reason,
             currentTimeMinutes: curMin,
             todayIso: getTodayISO(),
+            startMin: startMin,
           });
 
           state.tasks = res.updatedTasks;
           state.timeline = res.updatedTimeline;
-          state.lostTimeEvents.unshift({ id: `lost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, date: getTodayISO(), minutes: min, reason, startMin });
+          state.lostTimeEvents.unshift({ id: newLostId, date: getTodayISO(), minutes: min, reason, startMin });
 
           closeModal();
           saveState();
@@ -4807,7 +5685,7 @@
         if (previewEl) {
           const startMin = parseTimeToMinutes(startVal);
           const endMin = startMin + durVal;
-          previewEl.innerHTML = `Window: <strong class="text-primary">${startVal} – ${minutesToTime(endMin)}</strong> (${durVal} mins)`;
+          previewEl.innerHTML = `Window: <strong class="text-primary">${formatDisplayTime(startVal)} – ${formatDisplayTime(endMin)}</strong> (${durVal} mins)`;
         }
       };
 
@@ -5149,6 +6027,9 @@
   // 11. EVENT LISTENERS
   // =========================================================================
   function attachEventListeners() {
+    // Initialize custom time inputs inside main view
+    initTimeInputs(document.getElementById('app'));
+
     // Tabs Navigation
     document.querySelectorAll('[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -5172,6 +6053,27 @@
     document.getElementById('btn-settings-theme')?.addEventListener('click', () => {
       state.theme = state.theme === 'dark' ? 'light' : 'dark';
       saveState();
+      render();
+    });
+
+    // Time Format Toggles (12h vs 24h)
+    document.getElementById('btn-time-format-12h')?.addEventListener('click', () => {
+      if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+      state.scheduleConfig.timeFormat = '12h';
+      state.timeFormat = '12h';
+      saveState();
+      recalculateTimeline();
+      showBanner('Time format set to 12-Hour (AM/PM)!', 'info');
+      render();
+    });
+
+    document.getElementById('btn-time-format-24h')?.addEventListener('click', () => {
+      if (!state.scheduleConfig) state.scheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG };
+      state.scheduleConfig.timeFormat = '24h';
+      state.timeFormat = '24h';
+      saveState();
+      recalculateTimeline();
+      showBanner('Time format set to 24-Hour (00:00 – 23:59)!', 'info');
       render();
     });
 
@@ -5264,7 +6166,7 @@
         };
         recalculateTimeline();
         saveState();
-        showBanner(`Schedule updated: Day starts at ${formatTime12(parseTimeToMinutes(val))}`, 'info');
+        showBanner(`Schedule updated: Day starts at ${formatDisplayTime(parseTimeToMinutes(val))}`, 'info');
         render();
       }
     });
@@ -5278,7 +6180,7 @@
       };
       recalculateTimeline();
       saveState();
-      showBanner(`Day schedule adapted! Now starting at ${formatTime12(curM)}`, 'success');
+      showBanner(`Day schedule adapted! Now starting at ${formatDisplayTime(curM)}`, 'success');
       render();
     });
 
@@ -5308,7 +6210,7 @@
         state.scheduleConfig[eKey] = minutesToTime(curS + newDur);
         recalculateTimeline();
         saveState();
-        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} duration adjusted to ${newDur} mins (${state.scheduleConfig[sKey]} – ${state.scheduleConfig[eKey]})!`, 'success');
+        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} duration adjusted to ${newDur} mins (${formatDisplayTime(state.scheduleConfig[sKey])} – ${formatDisplayTime(state.scheduleConfig[eKey])})!`, 'success');
         render();
       });
     });
@@ -5329,7 +6231,7 @@
         state.scheduleConfig[eKey] = minutesToTime(newS + dur);
         recalculateTimeline();
         saveState();
-        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved to ${state.scheduleConfig[sKey]} – ${state.scheduleConfig[eKey]}!`, 'success');
+        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved to ${formatDisplayTime(state.scheduleConfig[sKey])} – ${formatDisplayTime(state.scheduleConfig[eKey])}!`, 'success');
         render();
       });
     });
@@ -5349,7 +6251,7 @@
         state.scheduleConfig[eKey] = minutesToTime(newS + dur);
         recalculateTimeline();
         saveState();
-        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved earlier to ${state.scheduleConfig[sKey]} – ${state.scheduleConfig[eKey]}!`, 'success');
+        showBanner(`${meal.charAt(0).toUpperCase() + meal.slice(1)} moved earlier to ${formatDisplayTime(state.scheduleConfig[sKey])} – ${formatDisplayTime(state.scheduleConfig[eKey])}!`, 'success');
         render();
       });
     });
@@ -5374,13 +6276,14 @@
         if (blk) {
           blk.startMin += mins;
           blk.endMin += mins;
-          blk.startTimeStr = minutesToTime(blk.startMin);
-          blk.endTimeStr = minutesToTime(blk.endMin);
+          blk.startTimeStr = formatDisplayTime(blk.startMin);
+          blk.endTimeStr = formatDisplayTime(blk.endMin);
           showBanner(`Break delayed by ${mins} minutes!`, 'info');
           render();
         }
       });
     });
+
 
     // Quick Add Dropdown
     const qaBtn = document.getElementById('btn-quick-add');
@@ -5430,8 +6333,8 @@
       btn.addEventListener('click', () => {
         const d = btn.getAttribute('data-cal-date');
         state.viewDate = d;
-        state._calendarSelectedTasks = true;
-        recalculateTimeline(d);
+        selectedWeeklyDate = d;
+        state.activeTab = 'weekly';
         render();
       });
     });
@@ -5845,10 +6748,149 @@
       });
     });
 
-    // Sign Out
-    document.getElementById('btn-sign-out')?.addEventListener('click', () => {
-      localStorage.removeItem('adapt_google_id');
-      window.location.reload();
+    // User Profile Dropdown Pill in Nav
+    const navUserBtn = document.getElementById('btn-nav-user');
+    const navUserDropdown = document.getElementById('nav-user-dropdown');
+    if (navUserBtn && navUserDropdown) {
+      navUserBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = navUserDropdown.style.display === 'block';
+        navUserDropdown.style.display = isOpen ? 'none' : 'block';
+      });
+    }
+
+    document.querySelectorAll('[data-action="nav-settings"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (navUserDropdown) navUserDropdown.style.display = 'none';
+        state.activeTab = 'settings';
+        render();
+      });
+    });
+
+    const handleSignOut = () => {
+      clearAuthSession();
+      authUIState.mode = 'signin';
+      authUIState.error = null;
+      authUIState.success = null;
+      showBanner('You have been signed out.', 'info');
+      render();
+    };
+
+    document.getElementById('btn-nav-logout')?.addEventListener('click', handleSignOut);
+    document.getElementById('btn-settings-logout')?.addEventListener('click', handleSignOut);
+    document.getElementById('btn-sign-out')?.addEventListener('click', handleSignOut);
+
+    // Settings - Change Password Box Toggle
+    document.getElementById('btn-toggle-change-pwd-box')?.addEventListener('click', () => {
+      const box = document.getElementById('settings-change-pwd-box');
+      if (box) {
+        const isHidden = box.style.display === 'none';
+        box.style.display = isHidden ? 'block' : 'none';
+      }
+    });
+
+    // Settings - Password Visibility Eye Toggles
+    document.getElementById('btn-toggle-chg-curr')?.addEventListener('click', () => {
+      const input = document.getElementById('change-current-pwd');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('btn-toggle-chg-new')?.addEventListener('click', () => {
+      const input = document.getElementById('change-new-pwd');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('btn-toggle-chg-conf')?.addEventListener('click', () => {
+      const input = document.getElementById('change-confirm-pwd');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    // Settings - Live Strength Meter for New Password
+    const chgNewPwd = document.getElementById('change-new-pwd');
+    if (chgNewPwd) {
+      chgNewPwd.addEventListener('input', (e) => {
+        const val = e.target.value;
+        const box = document.getElementById('change-pwd-strength-box');
+        const fill = document.getElementById('change-pwd-strength-fill');
+        const hint = document.getElementById('change-pwd-strength-hint');
+        if (!val) {
+          if (box) box.style.display = 'none';
+          return;
+        }
+        if (box) box.style.display = 'block';
+        const st = getPasswordStrength(val);
+        if (fill) {
+          fill.style.width = `${st.pct}%`;
+          fill.style.backgroundColor = st.color;
+        }
+        if (hint) {
+          hint.textContent = st.label;
+          hint.style.color = st.color;
+        }
+      });
+    }
+
+    // Settings - Submit Change Password Form
+    document.getElementById('form-change-password')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPwd = document.getElementById('change-current-pwd')?.value;
+      const newPwd = document.getElementById('change-new-pwd')?.value;
+      const confirmPwd = document.getElementById('change-confirm-pwd')?.value;
+      const alertEl = document.getElementById('change-pwd-alert');
+
+      const showAlert = (msg, type = 'error') => {
+        if (!alertEl) return;
+        alertEl.className = `auth-alert auth-alert-${type}`;
+        alertEl.style.display = 'flex';
+        alertEl.innerHTML = `<span>${type === 'error' ? '⚠️' : '✓'}</span><span>${escapeHtml(msg)}</span>`;
+      };
+
+      if (!currentPwd || !newPwd || !confirmPwd) {
+        showAlert('Please fill in all password fields.', 'error');
+        return;
+      }
+
+      if (newPwd.length < 6) {
+        showAlert('New password must be at least 6 characters.', 'error');
+        return;
+      }
+
+      if (newPwd !== confirmPwd) {
+        showAlert('New passwords do not match.', 'error');
+        return;
+      }
+
+      const session = getAuthSession();
+      if (!session) {
+        showAlert('Session expired. Please sign in again.', 'error');
+        return;
+      }
+
+      const users = getUsersDB();
+      const user = users.find(u => u.id === session.userId);
+      if (!user) {
+        showAlert('User record not found.', 'error');
+        return;
+      }
+
+      const currentHash = await hashPassword(currentPwd, user.salt);
+      if (currentHash !== user.passwordHash) {
+        showAlert('Current password is incorrect.', 'error');
+        return;
+      }
+
+      // Generate new salt and new hash
+      const newSalt = generateRandomHex(12);
+      const newPasswordHash = await hashPassword(newPwd, newSalt);
+      user.salt = newSalt;
+      user.passwordHash = newPasswordHash;
+      saveUsersDB(users);
+
+      showAlert('Password changed successfully!', 'success');
+      document.getElementById('change-current-pwd').value = '';
+      document.getElementById('change-new-pwd').value = '';
+      document.getElementById('change-confirm-pwd').value = '';
+      const box = document.getElementById('change-pwd-strength-box');
+      if (box) box.style.display = 'none';
+      showBanner('Security update: Password changed successfully!', 'success');
     });
   }
 
@@ -5859,7 +6901,7 @@
     if (clockEl) {
       const curMin = getCurrentTimeMinutes(state.currentTime);
       const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][state.currentTime.getDay()];
-      clockEl.innerText = `${dayName} ${formatTime12(curMin)}`;
+      clockEl.innerText = `${dayName} ${formatDisplayTime(curMin)}`;
     }
     if (state.focus && state.focus.isRunning) {
       if (!state.focus.lastStartTime) state.focus.lastStartTime = Date.now();
@@ -5898,6 +6940,30 @@
       if (qaMenu && qaMenu.style.display !== 'none') {
         qaMenu.style.display = 'none';
       }
+    });
+
+    // Nav User Dropdown click outside
+    document.addEventListener('click', (e) => {
+      const userDropdown = document.getElementById('nav-user-dropdown');
+      const userBtn = document.getElementById('btn-nav-user');
+      if (userDropdown && userDropdown.style.display !== 'none') {
+        if (!userBtn || !userBtn.contains(e.target)) {
+          userDropdown.style.display = 'none';
+        }
+      }
+    });
+
+    // Open the native date picker from the adjacent calendar button.
+    document.addEventListener('click', (event) => {
+      const trigger = event.target.closest?.('[data-date-picker-for]');
+      if (!trigger) return;
+      const input = document.getElementById(trigger.dataset.datePickerFor);
+      if (!input) return;
+      input.focus();
+      if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); return; } catch {}
+      }
+      input.click();
     });
 
     // Global Keyboard Shortcuts
@@ -7165,6 +8231,17 @@ Here is where your study session stands right now:
     formatGemmaMarkdown,
     addNewTaskFromGemma,
     cleanAIResponse,
+    formatTime12,
+    getTimeFormat,
+    formatDisplayTime,
+    convert24hTo12hParts,
+    parse12hTo24h,
+    normalize24hString,
+    renderTimeInput,
+    initTimeInputs,
+    generateDayTimeline,
+    parseQuickTaskInput,
+    DEFAULT_SCHEDULE_CONFIG,
   };
 
 })();

@@ -1,0 +1,168 @@
+
+
+/* ========================================================================
+   Small-screen layout safeguards
+   ======================================================================== */
+@media (max-width: 767px) {
+  .main-content {
+    min-width: 0;
+    padding: 14px 12px calc(32px + env(safe-area-inset-bottom));
+  }
+
+  .main-content > *,
+  .dashboard-main-grid > *,
+  .dashboard-primary-col,
+  .dashboard-sidebar-col,
+  .card,
+  .calendar-matrix-card {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .dashboard-main-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-main-grid > *,
+  .dashboard-main-grid .card,
+  .dashboard-main-grid .calendar-matrix-card {
+    width: 100%;
+  }
+
+  .dashboard-control-bar,
+  .hero-top-row,
+  .card-header-row {
+    min-width: 0;
+  }
+
+  .calendar-matrix-card {
+    padding: 16px 12px 14px;
+    border-radius: 16px;
+  }
+
+  .cal-day-labels,
+  .cal-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .cal-day-labels {
+    gap: 2px;
+    margin-bottom: 8px;
+  }
+
+  .cal-grid {
+    gap: 4px 2px;
+  }
+
+  .cal-cell {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    aspect-ratio: 1;
+    border-width: 1px;
+    border-radius: clamp(7px, 2.5vw, 12px);
+    font-size: clamp(11px, 3.5vw, 14px);
+  }
+
+  .cal-day-label {
+    font-size: clamp(9px, 3vw, 11px);
+  }
+
+  .cal-month-text {
+    font-size: clamp(17px, 5vw, 21px);
+  }
+
+  .cal-task-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .modal-backdrop,
+  .gemma-companion-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .modal-content,
+  .modal-content.modal-content-lg,
+  .gemma-companion-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+    overflow-y: auto;
+  }
+
+  .gemma-companion-modal {
+    height: min(82dvh, 720px);
+    overflow: hidden;
+  }
+
+  .gemma-modal-header {
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+
+  .gemma-header-left,
+  .gemma-header-actions {
+    min-width: 0;
+  }
+
+  .gemma-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .gemma-toggle-context-btn {
+    padding: 5px 7px;
+  }
+
+  .gemma-msg-row {
+    max-width: 100%;
+  }
+
+  .gemma-messages-scroll {
+    min-height: 0;
+    padding: 14px 12px;
+  }
+}
+
+@media (max-width: 380px) {
+  .nav-header {
+    padding-inline: 8px;
+  }
+
+  .nav-container {
+    gap: 6px;
+  }
+
+  .nav-meta {
+    gap: 5px;
+  }
+
+  .live-clock {
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+
+  .main-content {
+    padding-inline: 8px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .calendar-matrix-card {
+    padding-inline: 8px;
+  }
+
+  .mini-task-row,
+  .gemma-task-pill-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

@@ -16,7 +16,14 @@
   <div id="app"></div>
   <script type="module" src="app.js"></script>
   <script>
-    if ('serviceWorker' in navigator) {
+    // Fallback: If index.html is opened directly via file:// in a browser without a web server,
+    // modern browsers block type="module" due to CORS. In that scenario, load app.js as a regular script.
+    if (window.location.protocol === 'file:') {
+      const s = document.createElement('script');
+      s.src = 'app.js';
+      document.body.appendChild(s);
+    }
+    if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').then(reg => {
           reg.update();

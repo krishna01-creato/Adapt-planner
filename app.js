@@ -2088,16 +2088,30 @@
     timelineView: 'agenda', // 'agenda' (default, non-overlapping) or 'grid' (hour scale)
     currentTime: new Date(),
     viewDate: getTodayISO(), // Date being viewed/planned (defaults to Today)
-    gemmaChat: {
-      isOpen: false,
-      isGenerating: false,
-      apiKey: localStorage.getItem('adapt_gemini_api_key') || '',
-      model: localStorage.getItem('adapt_gemini_model') || 'gemini-2.5-flash',
-      includeContext: localStorage.getItem('adapt_gemma_context') !== 'false',
-      settingsOpen: false,
-      attachedImage: null, // { name, mimeType, base64, dataUrl }
-      messages: [],
-    },
+    gemmaChat: (() => {
+      // Inline model migration: replace any deprecated/broken model with the current recommended one
+      const CURRENT_MODEL = 'gemini-3.8-flash';
+      const STALE_MODELS = [
+        'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash',
+        'gemini-2.5-flash', 'gemini-2.5-pro',
+        'gemma-2-9b-it', 'gemma-2-27b-it',
+        'gemma-4-4b-it', 'gemma-4-31b-it', 'gemma-4-26b-a4b-it',
+      ];
+      const savedModel = localStorage.getItem('adapt_gemini_model');
+      const model = (!savedModel || STALE_MODELS.includes(savedModel)) ? CURRENT_MODEL : savedModel;
+      if (model !== savedModel) localStorage.setItem('adapt_gemini_model', model);
+      return {
+        isOpen: false,
+        isGenerating: false,
+        apiKey: localStorage.getItem('adapt_gemini_api_key') || '',
+        model,
+        responseStyle: localStorage.getItem('adapt_gemma_style') || 'concise',
+        includeContext: localStorage.getItem('adapt_gemma_context') !== 'false',
+        settingsOpen: false,
+        attachedImage: null, // { name, mimeType, base64, dataUrl }
+        messages: [],
+      };
+    })(),
   };
 
     // Ensure scheduleConfig always exists
@@ -6980,15 +6994,66 @@ durationSlider?.addEventListener('input', () => syncDurationControls('slider'));
   }
 
   // =========================================================================
-  // GEMMA 4 MULTIMODAL AI COMPANION (HACKTOBERFEST 2026 - TRACK 1)
+  // GEMMA 4 AI STUDY COACH (HACKTOBERFEST 2026 - BEST USE OF GEMMA 4)
   // =========================================================================
+
+  // =========================================================================
+  // AI STUDY COACH (FAST, CONCISE, GROUNDED ENGINE)
+  // =========================================================================
+
+  const GEMMA_STUDY_COACH_SYSTEM_PROMPT = `You are Adapt AI, an empathetic, highly intelligent, and practical personal study coach.
+You are directly grounded in the student's live schedule, task database, college syllabus, and productivity metrics.
+
+CORE COACHING PRINCIPLES:
+1. DEEPLY PERSONALIZED: Always ground your answers in the student's actual schedule blocks, active slot, deadlines, subjects, and tasks provided in the context snapshot. Reference real times, subjects, and task titles from their planner.
+2. DIRECT & RELEVANT: Answer the student's specific intent directly:
+   - Schedule & Timetable: When asked about their schedule or day plan, provide a clear, chronological breakdown using the exact times and slot titles from their timeline.
+   - What to Study Next: Recommend the highest-urgency or highest-priority item, explain why based on their deadline/exam/slot, and provide clear next steps.
+   - Rest of Day Planning: Map their remaining free slots to specific tasks from their backlog while respecting meal and break commitments.
+   - Academic Progress: Analyze syllabus completion percentages and exam countdowns.
+   - Overwhelm / Resistance / Low Energy: Provide warm, non-judgmental validation. If in a break/meal block, encourage guilt-free rest. Otherwise, recommend a 5-to-10 minute micro-win.
+3. CLEAR & ACTIONABLE FORMAT: Use clean markdown with headers, bold key items, bullet points, and numbered steps. Avoid walls of text or academic essays.
+4. ACTIONABLE STUDY TASKS: When recommending a concrete study task, format it on its own line like this:
+   [Task: "Task Title" | Duration: 30 | Priority: High | Category: cat-dsa]
+   Valid categories: cat-dsa (DSA), cat-college (College Subjects), cat-dev (Software Dev), cat-research (Research), cat-personal (Personal/Health), cat-other (General).
+5. CLEAN OUTPUT: Jump straight into your conversation with the student. Do NOT output internal thoughts, <think> tags, chain-of-thought, or draft labels.`;
+
+  function cleanAIResponse(rawText) {
+    if (!rawText) return '';
+    let text = rawText.trim();
+
+    // 1. Strip XML-style thinking/thought/scratchpad tags
+    text = text.replace(/<(?:think|thought|scratchpad|reasoning)>[\s\S]*?<\/(?:think|thought|scratchpad|reasoning)>/gi, '');
+    text = text.replace(/<(?:think|thought|scratchpad|reasoning)>[\s\S]*$/gi, '');
+
+    // 2. Strip trailing self-evaluations and verification checklists if any
+    text = text.replace(/(?:\r?\n)+\s*(?:Check|Self-check|Verification|Audit):\s*(?:Did I|Have I|Does this|Is it)[\s\S]*$/i, '');
+
+    // 3. Strip internal draft labels at line starts (e.g., "Draft:", "Assistant:", etc.)
+    text = text.replace(/^(?:Step \d+:\s*[A-Za-z ]+\.\s*)/gim, '');
+    text = text.replace(/^(?:Draft|Assistant|Coach|AI):\s*/gim, '');
+
+    // 4. If the entire text was wrapped in extraneous quotes, unwrap them
+    if (text.startsWith('"') && text.endsWith('"') && text.length > 2) {
+      text = text.slice(1, -1).trim();
+    }
+
+    return text.trim();
+  }
 
   function loadGemmaChatHistory() {
     try {
       const raw = localStorage.getItem('adapt_gemma_chat_history');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(m => {
+            if (m.role === 'assistant' && m.text && !m.isError) {
+              return { ...m, text: cleanAIResponse(m.text) };
+            }
+            return m;
+          });
+        }
       }
     } catch (e) {
       console.warn('Failed to load Gemma chat history:', e);
@@ -6997,15 +7062,16 @@ durationSlider?.addEventListener('input', () => syncDurationControls('slider'));
       {
         id: 'gemma-welcome',
         role: 'assistant',
-        text: `### ✦ Welcome to Adapt AI
-Your supportive study companion.
+        text: `### ✦ Welcome to Adapt AI Study Coach
+Grounded in your live schedule & study metrics. Fast, empathetic, and distraction-free.
 
-I can help you:
-- 💭 **Decompress** when you feel stressed or overwhelmed.
-- 🧭 **Diagnose** your planner to see where you are lagging.
-- ⚡ **Break down** big goals into simple, realistic steps.
-
-*What's on your mind right now?*`,
+**Ask me anything, or tap a quick prompt below:**
+- 📅 *"What is my schedule for today?"*
+- 🎯 *"What should I study next?"*
+- ⏱️ *"Where did I lose the most time today?"*
+- ⚡ *"How can I improve my schedule?"*
+- 🧭 *"Help me plan the rest of my day."*
+- 📚 *"Which subject am I neglecting?"*`,
         timestamp: Date.now(),
       },
     ];
@@ -7019,12 +7085,19 @@ I can help you:
     }
   }
 
-  function formatGemmaMarkdown(rawText) {
+  function formatGemmaMarkdown(rawText, wasTruncated = false) {
     if (!rawText) return '';
-    let html = escapeHtml(rawText);
+    let cleaned = cleanAIResponse(rawText);
+    // Remove any dangling unclosed bold/italic markers at the end (from token cutoff)
+    cleaned = cleaned.replace(/(\*{1,2})[^*\n]{0,80}$/, (match, stars) => {
+      const countOpen = (cleaned.match(/(?<![*])\*{1,2}(?![*])/g) || []).length;
+      return countOpen % 2 !== 0 ? '' : match;
+    });
+    cleaned = cleaned.trimEnd();
+    let html = escapeHtml(cleaned);
 
     // 1. Task cards: [Task: "Title" | Duration: 30 | Priority: High | Category: cat-dsa]
-    html = html.replace(/\[Task:\s*(?:&quot;|"|')(.*?)[\"']\s*\|\s*Duration:\s*(\d+)(?:\s*\|\s*Priority:\s*(\w+))?(?:\s*\|\s*Category:\s*([\w-]+))?\]/gi, (match, title, dur, prio, cat) => {
+    html = html.replace(/\[Task:\s*(?:&quot;|"|')(.*?)(?:&quot;|"|')\s*\|\s*Duration:\s*(\d+)(?:\s*\|\s*Priority:\s*(\w+))?(?:\s*\|\s*Category:\s*([\w-]+))?\]/gi, (match, title, dur, prio, cat) => {
       const duration = dur || 30;
       const priority = prio || 'Medium';
       const category = cat || FALLBACK_CATEGORY_ID;
@@ -7062,17 +7135,25 @@ I can help you:
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-    // 6. Lists
+    // 6. Ordered Lists
+    html = html.replace(/^\s*(\d+)\.\s+(.*)$/gim, '<oli>$2</oli>');
+    html = html.replace(/(<oli>[\s\S]*?<\/oli>)/gi, (m) => {
+      const items = m.replace(/<\/?oli>/g, (tag) => tag === '<oli>' ? '<li>' : '</li>');
+      return `<ol>${items}</ol>`;
+    });
+    html = html.replace(/<\/ol>\s*<ol>/gi, '');
+
+    // 7. Unordered Lists
     html = html.replace(/^\s*[-*]\s+(.*)$/gim, '<li>$1</li>');
     html = html.replace(/(<li>[\s\S]*?<\/li>)/gi, '<ul>$1</ul>');
     html = html.replace(/<\/ul>\s*<ul>/gi, '');
 
-    // 7. Paragraphs
+    // 8. Paragraphs
     const paragraphs = html.split(/\n\n+/);
     html = paragraphs.map(p => {
       p = p.trim();
       if (!p) return '';
-      if (p.startsWith('<h3>') || p.startsWith('<pre>') || p.startsWith('<ul>') || p.startsWith('<div class="gemma-task-pill-card"')) {
+      if (p.startsWith('<h3>') || p.startsWith('<pre>') || p.startsWith('<ul>') || p.startsWith('<ol>') || p.startsWith('<div class="gemma-task-pill-card"')) {
         return p;
       }
       return `<p>${p.replace(/\n/g, '<br/>')}</p>`;
@@ -7083,193 +7164,575 @@ I can help you:
 
   function buildGemmaGroundingContext() {
     const today = getTodayISO();
-    const pendingTasks = state.tasks.filter(t => t.status === 'pending');
+    const currentDate = state.viewDate || today;
+    const now = state.currentTime || new Date();
+    const nowMin = getCurrentTimeMinutes(now);
+    const nowFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const userName = state.user?.name || 'Student';
+
+    // 1. Generate live timeline fresh from state
+    const todayTimeline = generateDayTimeline({
+      fixedEvents: state.fixedEvents,
+      tasks: state.tasks,
+      currentDate,
+      currentTimeMinutes: nowMin,
+      config: state.scheduleConfig || DEFAULT_SCHEDULE_CONFIG,
+    });
+
+    // Active block right now
+    const activeBlock = todayTimeline.find(b => nowMin >= b.startMin && nowMin < b.endMin);
+    let activeBlockDesc = 'None (in free buffer time between commitments)';
+    if (activeBlock) {
+      const remainingMin = Math.max(1, activeBlock.endMin - nowMin);
+      activeBlockDesc = `"${activeBlock.title}" [${activeBlock.type}] (${minutesToTime(activeBlock.startMin)} - ${minutesToTime(activeBlock.endMin)}, ${remainingMin}m remaining)`;
+    }
+
+    // Full day's schedule blocks
+    const fullScheduleFormatted = todayTimeline.map(b => {
+      const isCurrent = (nowMin >= b.startMin && nowMin < b.endMin) ? '◀ [ACTIVE NOW]' : (b.endMin <= nowMin ? '[PAST]' : '[UPCOMING]');
+      const prio = b.priority ? ` • ${b.priority} priority` : '';
+      return `  - ${minutesToTime(b.startMin)} - ${minutesToTime(b.endMin)}: "${b.title}" (${b.type}${prio}) ${isCurrent}`;
+    }).join('\n');
+
+    // Upcoming blocks for today (from now onwards)
+    const upcomingBlocks = todayTimeline.filter(b => b.startMin >= nowMin && b.type !== 'buffer');
+    const upcomingFormatted = upcomingBlocks.length > 0
+      ? upcomingBlocks.slice(0, 5).map(b => `  - ${minutesToTime(b.startMin)} - ${minutesToTime(b.endMin)}: "${b.title}" (${b.duration}m, ${b.type})`).join('\n')
+      : '  - No further scheduled commitments today.';
+
+    // 2. Pending Tasks Breakdown
+    const pendingTasks = state.tasks.filter(t => t.status !== 'completed' && (t.remaining > 0 || t.remaining === undefined));
     const overdueTasks = pendingTasks.filter(t => t.deadline && t.deadline < today);
-    const criticalTasks = pendingTasks.filter(t => t.priority === 'Critical' || t.priority === 'High');
-    const recentLost = state.lostTimeEvents.reduce((acc, ev) => acc + (Number(ev.minutes) || 0), 0);
+    const dueTodayTasks = pendingTasks.filter(t => t.deadline === today);
 
-    const subjectsSummary = state.collegeSubjects.map(s => {
-      const total = s.topics ? s.topics.length : 0;
+    const topTasksList = pendingTasks.slice(0, 6).map(t => {
+      const cat = getCategoryById(state.categories, t.category);
+      const dueInfo = t.deadline ? (t.deadline < today ? `OVERDUE: ${t.deadline}` : (t.deadline === today ? 'DUE TODAY' : `Due: ${t.deadline}`)) : 'No deadline';
+      return `  - "${t.title}" [${t.priority} | ${cat.label} | ${t.remaining || t.duration}m | ${dueInfo}]`;
+    }).join('\n');
+
+    // 3. College Subjects & Syllabus
+    const collegeSubjectsList = (state.collegeSubjects || []).map(s => {
+      const total = s.topics ? s.topics.length : 1;
       const done = s.topics ? s.topics.filter(t => t.status === 'done').length : 0;
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      return `${s.name} (${pct}% complete, Exam: ${s.examDate || 'Not set'})`;
-    }).join('; ');
+      const pct = Math.round((done / total) * 100);
+      let daysLeft = 'Not set';
+      if (s.examDate) {
+        const diff = Math.ceil((new Date(s.examDate + 'T00:00:00') - new Date(today + 'T00:00:00')) / (1000 * 60 * 60 * 24));
+        daysLeft = `${diff} days`;
+      }
+      return `  - ${s.name}: ${pct}% completed (${done}/${total} topics)${s.examDate ? `, Exam in ${daysLeft} (${s.examDate})` : ''}`;
+    }).join('\n');
 
-    const dsaSummary = state.dsaTopics.map(d => `${d.name}: ${d.status} (${d.problemsSolved} solved)`).join('; ');
+    // 4. DSA Topics
+    const dsaDone = (state.dsaTopics || []).filter(d => d.status === 'done').length;
+    const dsaInProg = (state.dsaTopics || []).filter(d => d.status === 'in-progress').map(d => d.name).join(', ');
 
-    return `
-[SYSTEM GROUNDED CONTEXT FROM LIVE ADAPT STATE]:
-- User: ${state.user?.name || 'Friend'}
-- Current Time: ${new Date().toLocaleString()}
-- Total Pending Tasks: ${pendingTasks.length} (${criticalTasks.length} high/critical priority, ${overdueTasks.length} overdue)
-- Overdue Tasks: ${overdueTasks.slice(0, 3).map(t => `"${t.title}" (due ${t.deadline})`).join(', ') || 'None'}
-- Top Pending Tasks: ${pendingTasks.slice(0, 3).map(t => `"${t.title}" (${t.duration}m, ${t.priority})`).join(', ') || 'None'}
-- Recent Distraction/Lost Time Logged: ${recentLost} minutes
-- College Subjects Progress: ${subjectsSummary || 'None logged'}
-- DSA Tracker Summary: ${dsaSummary.slice(0, 300) || 'None logged'}
-`.trim();
+    // 5. Activity Metrics
+    const todayLostEvents = state.lostTimeEvents.filter(l => l.date === today);
+    const todayLostMin = todayLostEvents.reduce((acc, ev) => acc + (Number(ev.minutes) || 0), 0);
+    const todaySessions = state.studySessions.filter(s => s.date === today);
+    const todayStudyMin = todaySessions.reduce((acc, s) => acc + (Number(s.actualMin) || 0), 0);
+    const analytics = getAnalyticsData(state.studySessions, state.lostTimeEvents, state.tasks, state.categories);
+
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = dayNames[getDayOfWeek(currentDate)] || 'Today';
+
+    return `[LIVE STUDENT PLANNER & SCHEDULE SNAPSHOT]
+Student Name: ${userName}
+Current Time: ${nowFormatted} (${minutesToTime(nowMin)}) | Date: ${currentDate} (${dayName})
+Active Slot Right Now: ${activeBlockDesc}
+
+TODAY'S SCHEDULE TIMELINE:
+${fullScheduleFormatted || '  - No schedule blocks configured for today.'}
+
+UPCOMING SCHEDULE TODAY:
+${upcomingFormatted}
+
+BACKLOG & PENDING TASKS (${pendingTasks.length} total, ${overdueTasks.length} overdue, ${dueTodayTasks.length} due today):
+${topTasksList || '  - Backlog is clean! No pending tasks.'}
+
+ACADEMIC COURSES & EXAMS:
+${collegeSubjectsList || '  - No college subjects recorded.'}
+
+DSA & CODING TOPICS:
+- Patterns Mastered: ${dsaDone} | In Progress: ${dsaInProg || 'None'}
+
+METRICS TODAY:
+- Focus Logged: ${todayStudyMin}m | Distraction Time Logged: ${todayLostMin}m (Top leak: ${analytics.mostCommon || 'None'})
+- Streak: ${calculateStreak(state.studySessions, today)} day(s)`.trim();
   }
 
   function generateLocalHeuristicResponse(userPrompt, noticePrefix = '') {
     const p = (userPrompt || '').toLowerCase();
-    const userName = state.user?.name || 'Friend';
+    const userName = state.user?.name || 'Student';
     const today = getTodayISO();
-    const pendingTasks = state.tasks.filter(t => t.status === 'pending');
+    const currentDate = state.viewDate || today;
+    const now = state.currentTime || new Date();
+    const nowMin = getCurrentTimeMinutes(now);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = dayNames[getDayOfWeek(currentDate)] || 'Today';
+
+    const pendingTasks = state.tasks.filter(t => t.status !== 'completed' && (t.remaining > 0 || t.remaining === undefined));
     const overdueTasks = pendingTasks.filter(t => t.deadline && t.deadline < today);
-    const totalLost = state.lostTimeEvents.reduce((acc, ev) => acc + (Number(ev.minutes) || 0), 0);
+    const dueTodayTasks = pendingTasks.filter(t => t.deadline === today);
+    const criticalTasks = pendingTasks.filter(t => t.priority === 'Critical');
+    const highTasks = pendingTasks.filter(t => t.priority === 'High');
+    const topPending = [...overdueTasks, ...dueTodayTasks, ...criticalTasks, ...highTasks, ...pendingTasks];
+    const bestNextTask = topPending[0];
+
+    const todayTimeline = generateDayTimeline({
+      fixedEvents: state.fixedEvents,
+      tasks: state.tasks,
+      currentDate,
+      currentTimeMinutes: nowMin,
+      config: state.scheduleConfig || DEFAULT_SCHEDULE_CONFIG,
+    });
+    const activeBlock = todayTimeline.find(b => nowMin >= b.startMin && nowMin < b.endMin);
+
+    const todayLost = state.lostTimeEvents.filter(l => l.date === today);
+    const todayLostMin = todayLost.reduce((sum, l) => sum + (Number(l.minutes) || 0), 0);
+    const analytics = getAnalyticsData(state.studySessions, state.lostTimeEvents, state.tasks, state.categories);
 
     let prefix = noticePrefix ? `*${noticePrefix}*\n\n` : '';
+    const footerNote = `\n\n---\n*💡 Grounded in your live schedule & tasks. Connect your Google AI Studio API key in ⚙️ Settings for open-ended conversation.*`;
 
-    if (p.includes('overwhelm') || p.includes('stress') || p.includes('anxious') || p.includes('tired') || p.includes('burnout') || p.includes('can\'t focus') || p.includes('procrastinat')) {
-      return prefix + `### 💭 Let's Take a Breath, ${userName}
+    // 1. CAPABILITY: View Today's Schedule / Timetable / Routine
+    if (
+      p.includes('my schedule') || p.includes('today\'s schedule') || p.includes('todays schedule') ||
+      p.includes('timetable') || p.includes('routine') || p.includes('what is scheduled') ||
+      p.includes('what do i have today') || p.includes('show schedule') || p.includes('view schedule') ||
+      p.includes('what\'s on my schedule') || p.includes('whats on my schedule') ||
+      p.includes('my day look like') || p.includes('schedule today') ||
+      (p.includes('schedule') && !p.includes('improve') && !p.includes('better') && !p.includes('productivity') && !p.includes('calibrate'))
+    ) {
+      const activeDesc = activeBlock
+        ? `📍 **Active Right Now (${minutesToTime(nowMin)}):** "${activeBlock.title}" (${activeBlock.type}, ${Math.max(1, activeBlock.endMin - nowMin)}m remaining until ${minutesToTime(activeBlock.endMin)})`
+        : `📍 **Current Status (${minutesToTime(nowMin)}):** Free buffer time between scheduled commitments.`;
 
-It is completely normal to feel overwhelmed. When there are several tasks in motion, your brain treats all of them as immediate threats, which leads to avoidance and fatigue.
+      const scheduleRows = todayTimeline.map(b => {
+        let icon = '🎯';
+        if (b.type === 'meal') icon = b.mealKey === 'breakfast' ? '🍳' : (b.mealKey === 'lunch' ? '🍱' : '🍽️');
+        else if (b.type === 'fixed') icon = '🏛️';
+        else if (b.type === 'break') icon = '☕';
+        else if (b.type === 'lost') icon = '⚠️';
+        else if (b.type === 'buffer' || b.type === 'free') icon = '⏳';
 
-**Here is our calm 3-step reset:**
-1. **Right now is safe:** You don't need to finish everything today. Just the next 20 minutes.
-2. **Decompress first:** Step away from the screen for 2 minutes and drink water.
-3. **One tiny win:** When you return, take on just ONE low-resistance task to build momentum without stress.
+        const isCurrent = (nowMin >= b.startMin && nowMin < b.endMin);
+        const isPast = b.endMin <= nowMin;
+        const statusBadge = isCurrent ? ' **◀ ACTIVE NOW**' : (isPast ? ' *(completed)*' : '');
+        const meta = b.priority ? ` • **${b.priority}**` : '';
+        const hasLeadingEmoji = /^[\p{Extended_Pictographic}\u{1F300}-\u{1F9FF}]/u.test(b.title.trim());
+        const displayTitle = hasLeadingEmoji ? b.title.trim() : `${icon} ${b.title.trim()}`;
 
-[Task: "15-minute gentle reset & water break" | Duration: 15 | Priority: Low | Category: cat-personal]
+        return `• **${minutesToTime(b.startMin)} - ${minutesToTime(b.endMin)}:** ${displayTitle}${meta}${statusBadge}`;
+      }).join('\n');
 
-How does your body feel right now? Are you physically exhausted, or just mentally overloaded? Tell me and we will adjust your routine.`;
+      const nextStudyCard = bestNextTask
+        ? `\n\n**Next Recommended Study Item:**\n[Task: "${bestNextTask.title}" | Duration: ${bestNextTask.remaining || bestNextTask.duration} | Priority: ${bestNextTask.priority} | Category: ${bestNextTask.category}]`
+        : '';
+
+      return prefix + `### 📅 Today's Live Schedule (${dayName}, ${currentDate})
+${activeDesc}
+
+**Full Timeline Schedule:**
+${scheduleRows || '• No schedule blocks configured for today yet.'}${nextStudyCard}` + footerNote;
     }
 
-    if (p.includes('lag') || p.includes('behind') || p.includes('progress') || p.includes('delay') || p.includes('where am i')) {
-      let lagAnalysis = '';
-      if (overdueTasks.length > 0) {
-        lagAnalysis += `\n- ⚠️ **Overdue Tasks (${overdueTasks.length}):** ${overdueTasks.slice(0, 3).map(t => `"${t.title}"`).join(', ')}`;
+    // 2. CAPABILITY: What to study next / focus on now
+    if (p.includes('next') || p.includes('study now') || p.includes('what should i study') || p.includes('what to study') || p.includes('focus on now') || p.includes('what task')) {
+      if (activeBlock && activeBlock.type === 'task') {
+        const rem = Math.max(1, Math.round(activeBlock.endMin - nowMin));
+        return prefix + `### 🎯 Your Active Study Session
+Right now (${minutesToTime(nowMin)}), your schedule has an active block:
+
+**"${activeBlock.title}"** (${rem} minutes remaining until ${minutesToTime(activeBlock.endMin)}).
+
+**Coach Advice:** 
+Stay in the flow for this current block. Close unrelated browser tabs, put your phone face down, and work on this until ${minutesToTime(activeBlock.endMin)}.
+[Task: "${activeBlock.title}" | Duration: ${rem} | Priority: High | Category: ${activeBlock.category || FALLBACK_CATEGORY_ID}]` + footerNote;
+      }
+
+      if (activeBlock && (activeBlock.type === 'fixed' || activeBlock.type === 'meal')) {
+        const rem = Math.max(1, Math.round(activeBlock.endMin - nowMin));
+        return prefix + `### 🏛️ Scheduled Commitment Active
+According to your schedule, you are currently in:
+**${activeBlock.title}** (${minutesToTime(activeBlock.startMin)} - ${minutesToTime(activeBlock.endMin)}, ${rem}m remaining).
+
+Once this finishes at ${minutesToTime(activeBlock.endMin)}, your next recommended study priority is:
+${bestNextTask ? `**"${bestNextTask.title}"** (${bestNextTask.priority} priority, ${bestNextTask.duration}m).\n\n[Task: "${bestNextTask.title}" | Duration: ${bestNextTask.duration} | Priority: ${bestNextTask.priority} | Category: ${bestNextTask.category}]` : 'Take a short break before starting evening study.'}` + footerNote;
+      }
+
+      if (bestNextTask) {
+        const cat = getCategoryById(state.categories, bestNextTask.category);
+        const reason = bestNextTask.deadline && bestNextTask.deadline < today
+          ? `it is currently OVERDUE (deadline was ${bestNextTask.deadline})`
+          : (bestNextTask.deadline === today
+            ? `its deadline is TODAY (${today})`
+            : `it is marked as ${bestNextTask.priority} priority in ${cat.label}`);
+        return prefix + `### 🎯 Recommended Next Focus: "${bestNextTask.title}"
+Based on your live planner queue, this should be your next priority because **${reason}**.
+
+- **Category:** ${cat.label}
+- **Planned Duration:** ${bestNextTask.duration} minutes (${bestNextTask.remaining}m remaining)
+- **Priority Level:** ${bestNextTask.priority}
+
+**Recommended Action:**
+Dedicate the next 30-45 minutes to this single item before moving on to lower priority tasks.
+[Task: "${bestNextTask.title}" | Duration: ${bestNextTask.remaining || bestNextTask.duration} | Priority: ${bestNextTask.priority} | Category: ${bestNextTask.category}]` + footerNote;
+      }
+
+      return prefix + `### 📋 All Tasks Completed!
+You have no pending tasks in your backlog today! You can review past notes, take a well-deserved rest, or add new learning goals using the **+ Add Task** button.` + footerNote;
+    }
+
+    // 3. CAPABILITY: Plan the rest of the day
+    if (p.includes('plan the rest') || p.includes('plan my day') || p.includes('rest of my day') || p.includes('rest of the day') || p.includes('evening plan') || p.includes('remaining day')) {
+      const remainingBlocks = todayTimeline.filter(b => b.startMin >= nowMin && b.type !== 'buffer');
+      const remainingDayHours = Math.max(0, ((23 * 60) - nowMin) / 60).toFixed(1);
+
+      let roadmap = '';
+      if (remainingBlocks.length > 0) {
+        roadmap = remainingBlocks.map(b => {
+          let icon = b.type === 'meal' ? '🍱' : (b.type === 'fixed' ? '🏛️' : (b.type === 'break' ? '☕' : '🎯'));
+          return `• ${icon} **${minutesToTime(b.startMin)} - ${minutesToTime(b.endMin)}:** ${b.title} (${b.duration}m)`;
+        }).join('\n');
       } else {
-        lagAnalysis += `\n- ✅ **Deadlines:** No tasks are strictly overdue! You are on track with hard deadlines.`;
+        roadmap = `• 🎯 **Block 1 (Deep Work • 45m):** Focus strictly on your highest priority backlog item (${bestNextTask ? `"${bestNextTask.title}"` : 'Core Priority'}).
+• ☕ **Intermission (15m):** Walk, stretch, stay hydrated.
+• 📚 **Block 2 (Review / Practice • 40m):** Practice problems or syllabus revision.
+• 🌙 **Evening Close (20m):** Log your daily reflection and set tomorrow's priorities.`;
       }
 
-      if (totalLost > 0) {
-        lagAnalysis += `\n- ⏱️ **Lost Time:** You've logged ${totalLost} minutes of distractions recently (~${(totalLost/60).toFixed(1)} hours).`;
+      return prefix + `### 📅 Realistic Plan for the Rest of Today
+Current Time: **${minutesToTime(nowMin)}** (~${remainingDayHours} hours remaining until 11 PM).
+
+**Your Scheduled Roadmap:**
+${roadmap}
+
+${bestNextTask ? `\n[Task: "Deep Work Sprint: ${bestNextTask.title}" | Duration: 45 | Priority: High | Category: ${bestNextTask.category}]` : `[Task: "45-min Evening Study Session" | Duration: 45 | Priority: High | Category: cat-college]`}` + footerNote;
+    }
+
+    // 4. CAPABILITY: Distractions & Lost time
+    if (p.includes('distract') || p.includes('lost') || p.includes('lose') || p.includes('losing') || p.includes('waste') || p.includes('wasting') || p.includes('friction')) {
+      if (todayLostMin === 0 && analytics.totalLostMin === 0) {
+        return prefix + `### ⏱️ Time Loss Analysis
+You have **0 minutes** of distraction time recorded today and this week!
+
+*Note: If you experienced unrecorded distractions, you can log them using the **+ Log Lost Time** button on the timeline so we can calibrate your planning accuracy.*` + footerNote;
       }
 
-      const collegeLag = state.collegeSubjects.map(s => {
-        const done = s.topics ? s.topics.filter(t => t.status === 'done').length : 0;
+      let breakdown = '';
+      if (todayLost.length > 0) {
+        breakdown += `\n**Today's Logged Distractions (${todayLostMin} mins total):**\n` + todayLost.map(l => `• ${l.minutes}m: ${l.reason}`).join('\n');
+      } else {
+        breakdown += `\n**Today:** 0 minutes logged so far today.`;
+      }
+
+      breakdown += `\n\n**Weekly Analysis (${analytics.totalLostMin} mins total):**\n• Primary distraction factor: **"${analytics.mostCommon}"**\n• Planning calibration: ${analytics.insight}`;
+
+      return prefix + `### ⏱️ Where Time is Being Lost
+Here is the factual breakdown from your recorded distraction events:
+${breakdown}
+
+**Targeted Recommendations:**
+1. **Top Trigger Intervention:** Since "${analytics.mostCommon}" is your largest recorded sink, implement a 5-minute barrier before switching to that activity (e.g. physical phone separation, site blocker).
+2. **Recovery Sprint:** When distracted, do not abandon the day; reset with one small 25-minute sprint.
+[Task: "25-min Focused Reset Sprint" | Duration: 25 | Priority: High | Category: cat-personal]` + footerNote;
+    }
+
+    // 5. CAPABILITY: How to improve schedule / productivity calibration
+    if (p.includes('improve') || p.includes('productivity') || p.includes('better schedule') || p.includes('optimize')) {
+      return prefix + `### ⚡ Personalized Productivity Calibration
+Based on your active study history and timeline metrics:
+
+1. **Execution Rate:** Your task completion rate for scheduled deadlines is **${analytics.compRate}%**.
+2. **Duration Estimation:** ${analytics.insight}
+3. **Distraction Pattern:** Your primary logged leak is **"${analytics.mostCommon}"** (${analytics.totalLostMin}m this week).
+
+**Action Plan for Maximum Impact:**
+- **Calibrate Task Sizing:** Ensure tasks are split into chunks under 60 minutes to prevent mid-task fatigue.
+- **Protect High-Energy Windows:** Anchor your critical tasks during morning or early afternoon before decision fatigue sets in.
+- **Log Daily Reflections:** Fill the evening daily note in Adapt to close the loop on what worked and what didn't.` + footerNote;
+    }
+
+    // 6. CAPABILITY: Neglected subjects & syllabus progress
+    if (p.includes('neglect') || p.includes('lagging') || p.includes('subject') || p.includes('college') || p.includes('syllabus')) {
+      const sortedCollege = [...(state.collegeSubjects || [])].map(s => {
         const total = s.topics ? s.topics.length : 1;
+        const done = s.topics ? s.topics.filter(t => t.status === 'done').length : 0;
         const pct = Math.round((done / total) * 100);
-        return { name: s.name, pct };
-      }).filter(s => s.pct < 60);
+        let daysLeft = 999;
+        if (s.examDate) {
+          daysLeft = Math.ceil((new Date(s.examDate + 'T00:00:00') - new Date(today + 'T00:00:00')) / (1000 * 60 * 60 * 24));
+        }
+        return { name: s.name, pct, daysLeft, examDate: s.examDate || 'Not set', id: s.id };
+      }).sort((a, b) => a.pct - b.pct || a.daysLeft - b.daysLeft);
 
-      if (collegeLag.length > 0) {
-        lagAnalysis += `\n- 📚 **Subjects Needing Attention:** ${collegeLag.map(c => `${c.name} (${c.pct}% coverage)`).join(', ')}`;
+      if (sortedCollege.length === 0) {
+        return prefix + `### 📚 Subject Diagnosis
+No college subjects are currently recorded in your planner. You can add your syllabus in the **College / Syllabus** tab to track topic mastery and exam readiness.` + footerNote;
       }
 
-      return prefix + `### 🧭 Live Diagnostic: Where You Stand Today
+      const mostNeglected = sortedCollege[0];
+      return prefix + `### 📚 Academic Subject Diagnosis
+Here is where your subjects stand based on topic completion and exam dates:
 
-Here is an honest, non-judgmental look at your planner metrics:
-${lagAnalysis}
+${sortedCollege.map(s => `• **${s.name}:** ${s.pct}% completed ${s.examDate !== 'Not set' ? `(Exam in ${s.daysLeft} days)` : ''}`).join('\n')}
 
-**Recommended Catch-Up Strategy:**
-- Do not sprint through all backlog items in one night.
-- Pick **one** priority task and allocate a focused 45-minute sprint with phone notifications muted.
-- Reschedule non-critical tasks to tomorrow using Adapt's automatic timeline planner.
-
-[Task: "45-min Priority Catch-Up Sprint" | Duration: 45 | Priority: High | Category: cat-dsa]`;
+**Highest Attention Needed:**
+**${mostNeglected.name}** has the lowest completion (**${mostNeglected.pct}%**).
+We recommend scheduling a 45-minute revision sprint for this subject today.
+[Task: "45-min Syllabus Catch-Up: ${mostNeglected.name}" | Duration: 45 | Priority: High | Category: cat-college]` + footerNote;
     }
 
-    if (p.includes('plan') || p.includes('evening') || p.includes('schedule') || p.includes('day') || p.includes('routine')) {
-      return prefix + `### ⚡ Calm Day & Evening Structure
+    // 7. CAPABILITY: High Priority Tasks
+    if (p.includes('high priority') || p.includes('critical') || p.includes('pending task') || p.includes('backlog')) {
+      const topList = [...criticalTasks, ...highTasks];
+      if (topList.length === 0) {
+        return prefix + `### 🔥 High-Priority Tasks
+You have no Critical or High priority tasks pending right now! Great job staying ahead of high-stakes deadlines.` + footerNote;
+      }
+      return prefix + `### 🔥 Outstanding High-Priority Tasks (${topList.length})
+Here are your current high-urgency items:
 
-Here is a balanced outline designed to prevent burnout while moving forward:
+${topList.map(t => {
+  const cat = getCategoryById(state.categories, t.category);
+  const due = t.deadline ? `(Due: ${t.deadline})` : '(No deadline)';
+  return `• **"${t.title}"** — ${t.priority} priority, ${t.remaining || t.duration}m remaining ${due} [${cat.label}]`;
+}).join('\n')}
 
-- **Block 1 (Deep Work • 45m):** Focus on your highest priority task when your energy is fresh.
-- **Intermission (15m):** Snack, hydration, no doom-scrolling.
-- **Block 2 (Review or College • 45m):** Solidify key concepts or solve practice problems.
-- **Evening Wind-down (30m):** Personal time, light reading, and logging your daily reflection in Adapt.
-
-Would you like me to slot a focused work block into your planner right now?
-[Task: "Evening Deep Work Block" | Duration: 45 | Priority: High | Category: cat-college]`;
+Which of these would you like to tackle first?` + footerNote;
     }
 
-    if (p.includes('dsa') || p.includes('algorithm') || p.includes('code') || p.includes('leetcode') || p.includes('tree') || p.includes('graph') || p.includes('dp')) {
-      return prefix + `### 🌲 Algorithmic Problem Solving Strategy
+    // 8. CAPABILITY: Overwhelmed / Stress / "I can't study"
+    if (
+      p.includes("can't study") || p.includes("cant study") || p.includes("cannot study") ||
+      p.includes("don't want to study") || p.includes("dont want to study") ||
+      p.includes("not able to study") || p.includes("no motivation") ||
+      p.includes("procrastinat") || p.includes("stuck") || p.includes("overwhelm") ||
+      p.includes("freeze") || p.includes("burnout") || p.includes("tired") || p.includes("anxious") || p.includes("stress")
+    ) {
+      if (activeBlock && (activeBlock.type === 'fixed' || activeBlock.type === 'meal' || activeBlock.type === 'break')) {
+        const rem = Math.max(1, activeBlock.endMin - nowMin);
+        return prefix + `### 🌿 Take a Breath, ${userName}
+You're currently in your scheduled slot: **"${activeBlock.title}"** (${rem}m remaining until ${minutesToTime(activeBlock.endMin)}). It's completely natural to feel study resistance when your backlog is heavy.
 
-When tackling DSA patterns:
-1. **Understand the Invariant:** Don't memorize code; identify the condition that holds true at every step (e.g., Two Pointers: search space shrinks monotonically; BFS: finds shortest unweighted path).
-2. **Brute Force First:** State the $O(N^2)$ or exponential solution out loud before optimizing.
-3. **Space/Time Tradeoff:** Can a hash map, prefix sum, or two-pointer window bring time down to $O(N)$?
+**Coach Advice:**
+Use the rest of this slot to genuinely recharge—no guilt, no staring at notes. When the slot ends, do NOT try to climb a mountain. Just commit to one **10-minute micro-sprint** to break the freeze.
+${bestNextTask ? `\n[Task: "10m Micro-Sprint: ${bestNextTask.title}" | Duration: 10 | Priority: High | Category: ${bestNextTask.category}]` : `\n[Task: "10m Gentle Momentum Reset" | Duration: 10 | Priority: High | Category: cat-personal]`}` + footerNote;
+      }
 
-Tell me the exact problem or pattern you're working through and we can walk through the edge cases together!
-[Task: "30-min DSA Pattern Practice" | Duration: 30 | Priority: Medium | Category: cat-dsa]`;
+      return prefix + `### 🌿 I Hear You, ${userName}
+Study paralysis is almost always a reaction to feeling overwhelmed by a big backlog, not a lack of motivation.
+
+**The 5-Minute Reset:**
+Let's not try to solve everything tonight. Lower the friction to zero: commit to just **10 minutes** on one small topic. If you still want to stop after 10 minutes, you have permission to stop.
+${bestNextTask ? `\n[Task: "10m Warm-up: ${bestNextTask.title}" | Duration: 10 | Priority: High | Category: ${bestNextTask.category}]` : `\n[Task: "10m Gentle Reset Sprint" | Duration: 10 | Priority: High | Category: cat-personal]`}` + footerNote;
     }
 
-    return prefix + `### ✦ I Hear You, ${userName}
+    // 9. CAPABILITY: Algorithmic / DSA
+    if (p.includes('dsa') || p.includes('leetcode') || p.includes('algorithm') || p.includes('binary search') || p.includes('dp')) {
+      const inProgDsa = (state.dsaTopics || []).filter(d => d.status === 'in-progress');
+      return prefix + `### 🌲 Algorithmic Problem Solving
+You have **${(state.dsaTopics || []).filter(d => d.status === 'done').length}** DSA patterns mastered and **${inProgDsa.length}** in-progress (${inProgDsa.map(d => d.name).slice(0, 3).join(', ')}).
 
-Thank you for sharing that with me. Whether you're navigating a dilemma, feeling stuck, or trying to organize your thoughts, having a clear sounding board makes all the difference.
+**Strategic Solving Method:**
+1. **State the Invariant:** What property remains true at every loop/recursion step?
+2. **Brute Force First:** Articulate the naive $O(N^2)$ solution before jumping to optimizations.
+3. **Pattern Match:** Does sliding window, monotonic stack, or prefix sum fit the constraints?
+[Task: "30-min DSA Pattern Practice" | Duration: 30 | Priority: Medium | Category: cat-dsa]` + footerNote;
+    }
 
-Here are a few ways we can approach this:
-- If this is a **complex problem**, let's isolate the very first step together.
-- If this is **time or task pressure**, we can rebalance your Adapt timeline to give you breathing room.
-- If you have notes, slides, or code screenshots, hit **📎 Attach** below to review them visually with Gemma 4!
+    // 10. Greetings & Casual Conversation
+    if (p.includes('how are you') || p === 'hi' || p.startsWith('hi ') || p.includes('hello') || p.includes('hey') || p.includes('who are you')) {
+      return prefix + `### 👋 Hello, ${userName}!
+I'm doing great, thank you for asking! I am your **Adapt AI Study Coach**.
 
-What aspect feels most urgent to you right now?`;
+**Live Planner Status (${minutesToTime(nowMin)}):**
+- **Active Slot:** ${activeBlock ? `"${activeBlock.title}" (${activeBlock.type})` : 'Free buffer window'}
+- **Next High Priority:** ${bestNextTask ? `"${bestNextTask.title}" (${bestNextTask.priority}, ${bestNextTask.duration}m)` : 'Backlog clean'}
+- **Study Streak:** ${calculateStreak(state.studySessions, today)} day(s)
+
+**Quick actions grounded in your schedule:**
+- 📅 *"What is my schedule for today?"*
+- 🎯 *"What should I study next?"*
+- ⏱️ *"Where did I lose the most time today?"*
+- 🧭 *"Help me plan the rest of my day."*` + footerNote;
+    }
+
+    // 11. General Diagnostics & Status Fallback
+    return prefix + `### 🧭 Live Status & Diagnostics for ${userName}
+Here is where your study session stands right now:
+- **Active Slot:** ${activeBlock ? `"${activeBlock.title}" (${activeBlock.type}, ${Math.max(1, activeBlock.endMin - nowMin)}m remaining)` : 'Free buffer window'}
+- **Next High-Priority Task:** ${bestNextTask ? `"${bestNextTask.title}" (${bestNextTask.priority}, ${bestNextTask.duration}m)` : 'Backlog clean'}
+- **Today's Distractions:** ${todayLostMin} minutes logged
+- **Study Streak:** ${calculateStreak(state.studySessions, today)} day(s)
+
+**Ask me any schedule-grounded question:**
+- 📅 *"What is my schedule for today?"*
+- 🎯 *"What should I study next?"*
+- 🧭 *"Help me plan the rest of my day."*
+- 📚 *"Which subject am I neglecting?"*` + footerNote;
+  }
+
+  // Fetch with a hard timeout so requests never hang indefinitely
+  async function fetchWithTimeout(url, options, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Helper to extract candidate text safely across single or multi-part responses
+  function extractCandidateText(json) {
+    const parts = json?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts) || parts.length === 0) return '';
+    const textParts = parts.filter(p => p.text && !p.thought).map(p => p.text);
+    if (textParts.length > 0) return textParts.join('\n\n');
+    return parts[0]?.text || '';
   }
 
   async function requestGemmaAIResponse(userPrompt) {
     const apiKey = state.gemmaChat.apiKey?.trim();
-    const model = state.gemmaChat.model || 'gemini-2.5-flash';
+    const model = state.gemmaChat.model || 'gemini-3.8-flash';
+    const responseStyle = state.gemmaChat.responseStyle || 'concise';
+    const isConcise = responseStyle === 'concise';
+    const maxTokens = isConcise ? 1000 : 2000;
     const includeContext = state.gemmaChat.includeContext !== false;
     const contextStr = includeContext ? buildGemmaGroundingContext() : '';
 
     if (apiKey) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-        
-        const systemPrompt = `You are Adapt AI, an empathetic, supportive, and practical personal life companion and problem-solver powered by Gemma 4. 
-Users come to you with stress, feeling overwhelmed, procrastination, balancing daily life, understanding difficult academic concepts, or planning their day.
-Respond warmly, concisely, and insightfully. Never be overly robotic or generic. Avoid toxic positivity.
-When recommending concrete tasks, provide them in this format on their own line:
-[Task: "Task Name" | Duration: 30 | Priority: Medium | Category: cat-personal]
-Categories: cat-dsa (DSA), cat-college (College/Exams), cat-dev (Software Dev), cat-research (Research), cat-personal (Personal/Health), cat-other (General).
+      // Model name is a URL path segment
+      const makeUrl = (m) =>
+        `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-${contextStr}`;
+      // Filter recent conversation history (last 6 messages max to minimize latency and token overhead)
+      const validHistory = (state.gemmaChat.messages || [])
+        .filter(m => m.id !== 'gemma-welcome' && !m.isError && m.text)
+        .slice(-6);
 
-        const userParts = [];
-        userParts.push({ text: `${systemPrompt}\n\nUser Message:\n${userPrompt}` });
+      const contents = [];
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: userParts }],
-            generationConfig: {
-              temperature: 0.7,
-              topP: 0.9,
-              maxOutputTokens: 1024,
-            },
-          }),
+      for (const msg of validHistory) {
+        const role = msg.role === 'user' ? 'user' : 'model';
+        const cleanText = cleanAIResponse(msg.text);
+        if (contents.length > 0 && contents[contents.length - 1].role === role) {
+          contents[contents.length - 1].parts[0].text += `\n\n${cleanText}`;
+        } else {
+          contents.push({
+            role,
+            parts: [{ text: cleanText }],
+          });
+        }
+      }
+
+      // Ensure the first turn in contents is 'user' for Google API compliance
+      if (contents.length > 0 && contents[0].role !== 'user') {
+        contents.shift();
+      }
+
+      // Format current user message turn with compact snapshot
+      const currentPromptText = contextStr
+        ? `${contextStr}\n\nStudent Question:\n${userPrompt}`
+        : userPrompt;
+
+      if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+        contents[contents.length - 1].parts[0].text = currentPromptText;
+      } else {
+        contents.push({
+          role: 'user',
+          parts: [{ text: currentPromptText }],
         });
+      }
+
+      // Use native system_instruction
+      const buildPayload = (cts, withSystem) => withSystem
+        ? { system_instruction: { parts: [{ text: GEMMA_STUDY_COACH_SYSTEM_PROMPT }] }, contents: cts, generationConfig: { temperature: 0.35, topP: 0.85, maxOutputTokens: maxTokens } }
+        : { contents: cts.map((c, i) => i === cts.length - 1 && c.role === 'user' ? { role: 'user', parts: [{ text: `${GEMMA_STUDY_COACH_SYSTEM_PROMPT}\n\n${c.parts[0].text}` }] } : c), generationConfig: { temperature: 0.35, topP: 0.85, maxOutputTokens: maxTokens } };
+
+      const FETCH_OPTS = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+
+      // Helper: attempt one API call and return parsed text or throw
+      const tryModel = async (modelName, withSystem) => {
+        const res = await fetchWithTimeout(makeUrl(modelName), { ...FETCH_OPTS, body: JSON.stringify(buildPayload(contents, withSystem)) });
+
+        // system_instruction not supported → retry without it
+        if (!res.ok && res.status === 400 && withSystem) {
+          const r2 = await fetchWithTimeout(makeUrl(modelName), { ...FETCH_OPTS, body: JSON.stringify(buildPayload(contents, false)) });
+          if (!r2.ok) {
+            const e2 = await r2.json().catch(() => null);
+            throw new Error(`AI API error (${r2.status}): ${e2?.error?.message || r2.statusText}`);
+          }
+          const j2 = await r2.json();
+          const t2 = extractCandidateText(j2);
+          if (t2) return cleanAIResponse(t2);
+          throw new Error('AI returned an empty response.');
+        }
 
         if (!res.ok) {
-          const errText = await res.text();
-          console.warn('Gemma API HTTP error:', res.status, errText);
-          return generateLocalHeuristicResponse(userPrompt, `(Google API returned status ${res.status}. Switched to local offline intelligence)`);
+          const errJson = await res.json().catch(() => null);
+          const code = res.status;
+          const msg = errJson?.error?.message || res.statusText;
+          const err = new Error(`AI API error (${code}): ${msg}`);
+          err.status = code;
+          throw err;
         }
 
         const json = await res.json();
-        const candidateText = json.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (candidateText) {
-          return candidateText;
+        const text = extractCandidateText(json);
+        if (text) return cleanAIResponse(text);
+        throw new Error('AI returned an empty response. Please verify prompt or retry.');
+      };
+
+      // FALLBACK_MODELS: if primary model fails with 404, try these in order
+      const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+
+      try {
+        return await tryModel(model, true);
+      } catch (primaryErr) {
+        // Network error / timeout → silently degrade to local engine (no red error)
+        if (!primaryErr.status) {
+          console.warn(`[Adapt AI] Network error with ${model}, falling back to local engine:`, primaryErr.message);
+          return generateLocalHeuristicResponse(userPrompt,
+            `⚠️ Cloud AI offline (network issue). Showing local planner response instead.`);
         }
-      } catch (apiErr) {
-        console.warn('Gemma API fetch failed:', apiErr);
-        return generateLocalHeuristicResponse(userPrompt, '(Live API unreachable. Using local companion intelligence)');
+
+        // 404 → model not available → try fallback models
+        if (primaryErr.status === 404) {
+          for (const fm of FALLBACK_MODELS) {
+            try {
+              console.warn(`[Adapt AI] ${model} returned 404, trying ${fm}...`);
+              return await tryModel(fm, true);
+            } catch (fbErr) {
+              if (!fbErr.status) {
+                return generateLocalHeuristicResponse(userPrompt,
+                  `⚠️ Cloud AI offline (network issue). Showing local planner response instead.`);
+              }
+            }
+          }
+          throw new Error(`${primaryErr.message}\n\n👉 Please open ⚙️ Settings and select a different AI Model.`);
+        }
+
+        // Other HTTP errors (401, 403, 429, 500...) → re-throw to show error card
+        throw primaryErr;
       }
     }
 
+    // No API key → Local Adaptive Study Engine
     return generateLocalHeuristicResponse(userPrompt);
   }
 
+
   function renderGemmaFabHtml() {
     return `
-      <button class="gemma-fab-btn" id="btn-gemma-fab" title="Chat with Adapt AI (Gemma 4)">
+      <button class="gemma-fab-btn" id="btn-gemma-fab" title="Chat with Adapt AI Study Coach">
         <span class="gemma-fab-icon">✦</span>
-        <span class="gemma-fab-label">Ask Gemma</span>
-        <span class="gemma-fab-badge">Track 1</span>
+        <span class="gemma-fab-label">AI Coach</span>
+        <span class="gemma-fab-badge">Fast</span>
       </button>
     `;
   }
@@ -7279,10 +7742,10 @@ ${contextStr}`;
 
     const messages = state.gemmaChat.messages;
     const settingsOpen = state.gemmaChat.settingsOpen;
-    const attachedImage = state.gemmaChat.attachedImage;
-    const isGenerating = state.gemmaChat.isGenerating;
     const includeContext = state.gemmaChat.includeContext !== false;
     const hasApiKey = !!state.gemmaChat.apiKey;
+    const activeModel = state.gemmaChat.model || 'gemini-3.8-flash';
+    const responseStyle = state.gemmaChat.responseStyle || 'concise';
 
     return `
       <div class="gemma-companion-overlay" id="gemma-overlay">
@@ -7293,12 +7756,12 @@ ${contextStr}`;
               <div class="gemma-header-avatar">✦</div>
               <div class="gemma-header-titles">
                 <div class="gemma-header-title">
-                  <span>Adapt AI</span>
-                  <span class="gemma-tag-track1">Gemma 4</span>
+                  <span>Adapt AI Coach</span>
+                  <span class="gemma-tag-track1">${escapeHtml(activeModel.replace('-it', ''))}</span>
                 </div>
                 <div class="gemma-status-pill">
                   <span class="gemma-status-dot ${hasApiKey ? 'online' : ''}"></span>
-                  <span>${hasApiKey ? 'Gemma 4 Cloud Active' : 'Offline Companion Ready'}</span>
+                  <span>${hasApiKey ? `Cloud AI Active (${escapeHtml(activeModel)})` : 'Local Study Engine Active'}</span>
                 </div>
               </div>
             </div>
@@ -7309,7 +7772,7 @@ ${contextStr}`;
                 <span class="gemma-context-label">Grounding:</span>
                 <span class="gemma-context-state font-mono">${includeContext ? 'ON' : 'OFF'}</span>
               </button>
-              <button class="gemma-icon-btn ${settingsOpen ? 'active' : ''}" id="btn-gemma-toggle-settings" title="API Key & Model Settings">⚙️</button>
+              <button class="gemma-icon-btn ${settingsOpen ? 'active' : ''}" id="btn-gemma-toggle-settings" title="API Key, Model & Speed Settings">⚙️</button>
               <button class="gemma-icon-btn" id="btn-gemma-clear-chat" title="Clear Chat History">🗑️</button>
               <button class="gemma-icon-btn gemma-close-btn" id="btn-gemma-close-modal" title="Close">✕</button>
             </div>
@@ -7319,46 +7782,65 @@ ${contextStr}`;
           ${settingsOpen ? `
             <div class="gemma-settings-drawer">
               <div class="gemma-settings-header">
-                <strong>Google AI Studio / Gemini API Settings</strong>
-                <a href="https://aistudio.google.com/" target="_blank" rel="noopener" style="font-size:11px;color:#a855f7;text-decoration:underline;">Get Free API Key ↗</a>
+                <strong>AI Model & Speed Configuration</strong>
+                <a href="https://aistudio.google.com/" target="_blank" rel="noopener" style="font-size:11px;color:#a855f7;text-decoration:underline;">Get Free API Key at Google AI Studio ↗</a>
               </div>
               <div class="gemma-settings-grid">
                 <div>
-                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">Gemini / Gemma API Key</label>
+                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">Google AI Studio API Key</label>
                   <input type="password" class="input-text font-mono" id="gemma-input-apikey" value="${escapeHtml(state.gemmaChat.apiKey)}" placeholder="AIzaSy..." style="width:100%;font-size:12px;" />
                 </div>
                 <div>
-                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">Model</label>
+                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">AI Model Target</label>
                   <select class="select-input" id="gemma-select-model" style="width:100%;font-size:12px;">
-                    <option value="gemini-2.5-flash" ${state.gemmaChat.model === 'gemini-2.5-flash' ? 'selected' : ''}>gemini-2.5-flash (Gemma multimodal)</option>
-                    <option value="gemini-2.0-flash" ${state.gemmaChat.model === 'gemini-2.0-flash' ? 'selected' : ''}>gemini-2.0-flash</option>
-                    <option value="gemma-2-9b-it" ${state.gemmaChat.model === 'gemma-2-9b-it' ? 'selected' : ''}>gemma-2-9b-it (Open Weights)</option>
+                    <option value="gemini-3.8-flash" ${activeModel === 'gemini-3.8-flash' ? 'selected' : ''}>⚡ Gemini 3.8 Flash (Recommended — Latest & Fast)</option>
+                    <option value="gemini-3.8-pro" ${activeModel === 'gemini-3.8-pro' ? 'selected' : ''}>🧠 Gemini 3.8 Pro (Most Capable)</option>
+                    <option value="gemini-2.5-flash" ${activeModel === 'gemini-2.5-flash' ? 'selected' : ''}>⚡ Gemini 2.5 Flash</option>
+                    <option value="gemma-3-4b-it" ${activeModel === 'gemma-3-4b-it' ? 'selected' : ''}>Gemma 3 4B (Fast Open Weights)</option>
+                    <option value="gemma-3-12b-it" ${activeModel === 'gemma-3-12b-it' ? 'selected' : ''}>Gemma 3 12B (Balanced)</option>
+                    <option value="gemma-3-27b-it" ${activeModel === 'gemma-3-27b-it' ? 'selected' : ''}>Gemma 3 27B (High Quality)</option>
                   </select>
+                </div>
+                <div>
+                  <label class="label-title" style="font-size:11px;margin-bottom:4px;">Response Length & Speed</label>
+                  <select class="select-input" id="gemma-select-style" style="width:100%;font-size:12px;">
+                    <option value="concise" ${responseStyle === 'concise' ? 'selected' : ''}>🚀 Concise & Fast (&lt;130 words, 2-3 short paragraphs)</option>
+                    <option value="detailed" ${responseStyle === 'detailed' ? 'selected' : ''}>📖 Detailed Coach (More extensive guidance)</option>
+                  </select>
+                </div>
+                <div style="display:flex;align-items:center;">
+                  <span class="text-xs text-muted" style="line-height:1.4;">⚡ Tip: <strong>Gemini 3.8 Flash</strong> is the latest recommended model — fast, smart, and works with all new API keys.</span>
                 </div>
               </div>
               <div class="flex justify-between items-center mt-2">
-                <span class="text-xs text-muted">Stored securely in your browser's localStorage.</span>
+                <span class="text-xs text-muted">Stored securely in your browser's localStorage. Never sent to third parties.</span>
                 <button class="btn btn-sm btn-primary" id="btn-gemma-save-settings">Save Settings</button>
               </div>
             </div>
           ` : ''}
 
-          <!-- Quick Chips Bar -->
+          <!-- Quick Chips Bar (Study Coach Starters) -->
           <div class="gemma-chips-row">
-            <button class="gemma-quick-chip" data-quick-prompt="I'm feeling overwhelmed today, can you help me decompress and prioritize?">
-              <span>💭</span> <span>Feeling Overwhelmed</span>
+            <button class="gemma-quick-chip" data-quick-prompt="What is my schedule for today?">
+              <span>📅</span> <span>My schedule today</span>
             </button>
-            <button class="gemma-quick-chip" data-quick-prompt="Where am I lagging in my schedule and subjects, and what should I focus on?">
-              <span>🧭</span> <span>Where am I lagging?</span>
+            <button class="gemma-quick-chip" data-quick-prompt="What should I study next?">
+              <span>🎯</span> <span>What to study next?</span>
             </button>
-            <button class="gemma-quick-chip" data-quick-prompt="Help me organize a calm and realistic plan for the rest of today.">
-              <span>⚡</span> <span>Plan My Day</span>
+            <button class="gemma-quick-chip" data-quick-prompt="Help me plan the rest of my day.">
+              <span>🧭</span> <span>Plan rest of day</span>
             </button>
-            <button class="gemma-quick-chip" data-quick-prompt="Can you break down a hard problem step-by-step with me?">
-              <span>🧩</span> <span>Break Down Problem</span>
+            <button class="gemma-quick-chip" data-quick-prompt="Where did I lose the most time today?">
+              <span>⏱️</span> <span>Where did I lose time?</span>
             </button>
-            <button class="gemma-quick-chip" data-quick-prompt="What should I do if I keep getting distracted and losing study hours?">
-              <span>⚠️</span> <span>Distraction Advice</span>
+            <button class="gemma-quick-chip" data-quick-prompt="Which high-priority tasks are still pending?">
+              <span>🔥</span> <span>High-priority tasks</span>
+            </button>
+            <button class="gemma-quick-chip" data-quick-prompt="Which subject am I neglecting?">
+              <span>📚</span> <span>Neglected subjects</span>
+            </button>
+            <button class="gemma-quick-chip" data-quick-prompt="How can I improve my schedule?">
+              <span>⚡</span> <span>Improve schedule</span>
             </button>
           </div>
 
@@ -7369,6 +7851,7 @@ ${contextStr}`;
                 <div class="gemma-msg-avatar">${m.role === 'user' ? '👤' : '✦'}</div>
                 <div class="gemma-msg-bubble">
                   <div>${m.role === 'user' ? escapeHtml(m.text).replace(/\n/g, '<br/>') : formatGemmaMarkdown(m.text)}</div>
+                  ${m.isError ? `<button type="button" class="btn btn-sm btn-outline mt-2 gemma-retry-btn" data-retry-prompt="${escapeHtml(m.retryPrompt || '')}">↻ Retry Request</button>` : ''}
                 </div>
               </div>
             `).join('')}
@@ -7380,7 +7863,7 @@ ${contextStr}`;
               <textarea 
                 class="gemma-input-textarea" 
                 id="gemma-input-text" 
-                placeholder="Ask for advice, report your progress... (Enter to send)" 
+                placeholder="Ask your study coach: 'What should I study now?', 'Why that subject?'... (Enter to send)" 
                 rows="1"
               ></textarea>
 
@@ -7413,7 +7896,7 @@ ${contextStr}`;
       energy: 'Medium',
       flexibility: 'Flexible',
       status: 'pending',
-      notes: 'Generated by Adapt AI (Gemma 4)',
+      notes: 'Generated by Adapt AI Study Coach (Gemma 4)',
       subtasks: [],
       startTime: '',
       breakAfterMin: 0,
@@ -7476,19 +7959,22 @@ ${contextStr}`;
     // Save Settings
     document.getElementById('btn-gemma-save-settings')?.addEventListener('click', () => {
       const keyVal = document.getElementById('gemma-input-apikey')?.value?.trim() || '';
-      const modelVal = document.getElementById('gemma-select-model')?.value || 'gemini-2.5-flash';
+      const modelVal = document.getElementById('gemma-select-model')?.value || 'gemini-3.8-flash';
+      const styleVal = document.getElementById('gemma-select-style')?.value || 'concise';
       state.gemmaChat.apiKey = keyVal;
       state.gemmaChat.model = modelVal;
+      state.gemmaChat.responseStyle = styleVal;
       state.gemmaChat.settingsOpen = false;
       localStorage.setItem('adapt_gemini_api_key', keyVal);
       localStorage.setItem('adapt_gemini_model', modelVal);
-      showBanner(keyVal ? 'Gemma API settings saved!' : 'Switched to offline heuristic companion.', 'success');
+      localStorage.setItem('adapt_gemma_style', styleVal);
+      showBanner(keyVal ? `AI Coach settings saved (${modelVal}, ${styleVal} mode)!` : 'Switched to local adaptive study engine.', 'success');
       render();
     });
 
     // Clear Chat
     document.getElementById('btn-gemma-clear-chat')?.addEventListener('click', () => {
-      if (confirm('Clear chat history with Gemma?')) {
+      if (confirm('Clear chat history with AI Study Coach?')) {
         state.gemmaChat.messages = loadGemmaChatHistory().slice(0, 1);
         saveGemmaChatHistory(state.gemmaChat.messages);
         render();
@@ -7516,15 +8002,28 @@ ${contextStr}`;
     }
     
     attachTaskListeners();
+
     document.querySelectorAll('.gemma-quick-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const promptText = chip.getAttribute('data-quick-prompt');
         if (promptText) {
           const ta = document.getElementById('gemma-input-text');
-          if(ta) ta.value = promptText;
+          if (ta) ta.value = promptText;
           handleGemmaUserSend(promptText);
         }
       });
+    });
+
+    // Retry Button Listener (for failed API calls)
+    const messagesContainer = document.getElementById('gemma-messages-container');
+    messagesContainer?.addEventListener('click', (e) => {
+      const retryBtn = e.target.closest('.gemma-retry-btn');
+      if (retryBtn) {
+        const retryPrompt = retryBtn.getAttribute('data-retry-prompt');
+        if (retryPrompt) {
+          handleGemmaUserSend(retryPrompt);
+        }
+      }
     });
 
     // Input Textarea
@@ -7568,8 +8067,11 @@ ${contextStr}`;
   }
 
   async function handleGemmaUserSend(userText) {
-    const prompt = userText;
+    const prompt = userText?.trim();
     if (!prompt) return;
+
+    // Refresh timeline to ensure live state is completely fresh
+    recalculateTimeline();
 
     const userMessage = {
       id: `msg-u-${Date.now()}`,
@@ -7595,7 +8097,7 @@ ${contextStr}`;
           <div class="gemma-msg-avatar">✦</div>
           <div class="gemma-msg-bubble">
             <span class="pulse-dot" style="display:inline-block;margin-right:6px;"></span>
-            <em>Thinking...</em>
+            <em>Thinking with ${(state.gemmaChat.model || 'gemini-3.8-flash').replace('-it', '')}...</em>
           </div>
         </div>
       `);
@@ -7639,8 +8141,10 @@ ${contextStr}`;
       const errMsg = {
         id: `msg-ai-${Date.now()}`,
         role: 'assistant',
-        text: `### ⚠️ Could not complete request\n\n${err.message || 'Unknown error occurred. Please check network or API key.'}`,
+        text: `### \u26a0\ufe0f AI API Request Unsuccessful\n\n**Details:** ${err.message || 'Network or API error occurred.'}\n\n*Check your API key and model selection in \u2699\ufe0f Settings, or retry below:*`,
         timestamp: Date.now(),
+        isError: true,
+        retryPrompt: prompt,
       };
       state.gemmaChat.messages.push(errMsg);
       
@@ -7652,6 +8156,7 @@ ${contextStr}`;
             <div class="gemma-msg-avatar">✦</div>
             <div class="gemma-msg-bubble">
               <div>${formatGemmaMarkdown(errMsg.text)}</div>
+              <button type="button" class="btn btn-sm btn-outline mt-2 gemma-retry-btn" data-retry-prompt="${escapeHtml(prompt)}">↻ Retry Request</button>
             </div>
           </div>
         `);
@@ -7659,7 +8164,6 @@ ${contextStr}`;
     } finally {
       state.gemmaChat.isGenerating = false;
       
-      // Remove loading indicator just in case
       const loading = document.getElementById('gemma-loading-indicator');
       if (loading) loading.remove();
       
@@ -7688,6 +8192,20 @@ ${contextStr}`;
   }
 
   // Initial Boot
+  // Auto-migrate deprecated model names stored in localStorage
+  const DEPRECATED_MODELS = [
+    'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash',
+    'gemini-2.5-flash', 'gemini-2.5-pro',
+    'gemma-2-9b-it', 'gemma-2-27b-it',
+    'gemma-4-4b-it', 'gemma-4-31b-it', 'gemma-4-26b-a4b-it'
+  ];
+  const savedModel = localStorage.getItem('adapt_gemini_model');
+  if (!savedModel || DEPRECATED_MODELS.includes(savedModel)) {
+    const newDefault = 'gemini-3.8-flash';
+    localStorage.setItem('adapt_gemini_model', newDefault);
+    if (state.gemmaChat) state.gemmaChat.model = newDefault;
+  }
+
   state.gemmaChat.messages = loadGemmaChatHistory();
   setupGlobalListenersOnce();
   recalculateTimeline();
@@ -7706,6 +8224,13 @@ ${contextStr}`;
     validateTaskDuration,
     validateTimeRange,
     validateStudyMinutes,
+    buildGemmaGroundingContext,
+    generateLocalHeuristicResponse,
+    requestGemmaAIResponse,
+    handleGemmaUserSend,
+    formatGemmaMarkdown,
+    addNewTaskFromGemma,
+    cleanAIResponse,
     formatTime12,
     getTimeFormat,
     formatDisplayTime,
